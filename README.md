@@ -1,224 +1,60 @@
-# 📱 Mobile Gateway - بوابة الهدهد للرسائل
+# Welcome to your Expo app 👋
 
-تطبيق أندرويد لإرسال الرسائل النصية (SMS) عبر شبكة موزعة من الأجهزة.
+This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
----
+## Get started
 
-## 🎯 الميزات
+1. Install dependencies
 
-### الميزات الأساسية
-- ✅ استقبال الرسائل من الخادم عبر WebSocket
-- ✅ إرسال الرسائل عبر SMS
-- ✅ تتبع حالة كل رسالة
-- ✅ إعادة المحاولة التلقائية (حتى 3 مرات)
-- ✅ إرسال تقارير الحالة للخادم
+   ```bash
+   npm install
+   ```
 
-### الميزات المتقدمة
-- ✅ نظام Heartbeat للحفاظ على الاتصال
-- ✅ مزامنة تلقائية للرسائل غير المرسلة
-- ✅ إعادة اتصال تلقائي عند الانقطاع
-- ✅ خدمة خلفية تعمل حتى عند إغلاق التطبيق
-- ✅ إعادة تشغيل تلقائي عند إعادة تشغيل الجهاز
+2. Configure Supabase (required)
 
-### ميزات المراقبة
-- ✅ Dashboard مع إحصائيات حية
-- ✅ رسوم بيانية للنشاط (آخر 24 ساعة)
-- ✅ شاشة Logs لعرض السجلات
-- ✅ شاشة Failed Messages للرسائل الفاشلة
-- ✅ معلومات شرائح SIM
+   Create a `.env` file in the mobile directory with:
+   ```
+   EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+   ```
+   
+   Get these values from your Supabase Dashboard → Settings → API
 
----
+3. Start the app
 
-## 🛠️ التقنيات المستخدمة
+   ```bash
+   npx expo start
+   ```
 
-- **React Native 0.76.0** - إطار العمل الأساسي
-- **TypeScript** - لغة البرمجة
-- **Zustand** - إدارة الحالة
-- **SQLite** - قاعدة البيانات المحلية
-- **WebSocket** - الاتصال بالخادم
-- **Kotlin** - Native Modules
+In the output, you'll find options to open the app in a
 
----
+- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
+- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
+- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
+- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
-## 📋 المتطلبات
+You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
-- Node.js >= 18
-- Java JDK 17 أو 21
-- Android Studio
-- Android SDK (API Level 24-35)
-- جهاز أندرويد أو محاكي
+## Get a fresh project
 
----
+When you're ready, run:
 
-## 🚀 التثبيت
-
-### 1. تثبيت Dependencies
 ```bash
-npm install
+npm run reset-project
 ```
 
-### 2. البناء والتشغيل
-```bash
-# للأندرويد
-npm run android
+This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
 
-# للـ iOS (إذا كنت على Mac)
-npm run ios
-```
+## Learn more
 
----
+To learn more about developing your project with Expo, look at the following resources:
 
-## ⚙️ الإعداد
+- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
+- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
 
-### 1. إدخال بيانات الخادم
-1. افتح التطبيق
-2. اذهب إلى Settings (⚙️)
-3. أدخل:
-   - رابط الخادم: `http://YOUR_SERVER_IP:8082`
-   - مفتاح الوصول: `YOUR_API_KEY`
-4. احفظ الإعدادات
+## Join the community
 
-### 2. منح الصلاحيات
-- إرسال الرسائل (SMS)
-- قراءة حالة الهاتف
-- الإشعارات
-- تجاهل تحسين البطارية
+Join our community of developers creating universal apps.
 
-### 3. تشغيل البوابة
-1. ارجع للـ Dashboard
-2. اضغط "تشغيل البوابة"
-
----
-
-## 📁 هيكل المشروع
-
-```
-apps/mobile_gateway/
-├── android/                    # ملفات Android Native
-│   └── app/src/main/java/
-│       └── com/mobile_gateway/
-│           ├── GatewayService.kt      # الخدمة الخلفية
-│           ├── SmsModule.kt           # وحدة إرسال SMS
-│           └── BootReceiver.kt        # إعادة التشغيل التلقائي
-├── src/
-│   ├── screens/               # الشاشات
-│   │   ├── DashboardScreen.tsx
-│   │   ├── SettingsScreen.tsx
-│   │   ├── LogsScreen.tsx
-│   │   ├── FailedMessagesScreen.tsx
-│   │   └── SupportScreen.tsx
-│   └── services/              # الخدمات
-│       ├── WebSocketService.ts       # إدارة WebSocket
-│       ├── DatabaseService.ts        # قاعدة البيانات
-│       ├── SmsQueueManager.ts        # معالجة الطابور
-│       ├── NativeSms.ts              # واجهة SMS
-│       └── BackgroundServiceControl.ts
-├── App.tsx                    # نقطة الدخول
-└── package.json
-```
-
----
-
-## 🔄 دورة حياة الرسالة
-
-```
-1. استقبال من الخادم (WebSocket)
-   ↓
-2. حفظ في قاعدة البيانات (SQLite)
-   ↓
-3. إرسال تقرير BUFFERED للخادم
-   ↓
-4. إضافة للطابور (Queue)
-   ↓
-5. إرسال عبر SMS (Native Module)
-   ↓
-6. تحديث الحالة (SENT/FAILED)
-   ↓
-7. إرسال تقرير نهائي للخادم
-```
-
----
-
-## 🧪 الاختبار
-
-### اختبار سريع
-```bash
-# 1. ابنِ التطبيق
-npm run android
-
-# 2. أرسل رسالة من الخادم
-POST http://YOUR_SERVER_IP:8082/api/messages
-{
-  "phone_number": "+966XXXXXXXXX",
-  "content": "رسالة اختبار",
-  "device_id": "YOUR_DEVICE_UUID"
-}
-
-# 3. راقب التطبيق
-# - عداد "قيد الانتظار" يزيد
-# - بعد 3 ثوانٍ، عداد "تم الإرسال" يزيد
-# - الرسالة تصل للجهاز المستقبل
-```
-
----
-
-## 🚨 حل المشاكل
-
-### التطبيق لا يبني
-```bash
-rm -rf node_modules
-rm -rf android/build
-rm -rf android/app/build
-npm install
-npm run android
-```
-
-### WebSocket لا يتصل
-- تحقق من API URL (يجب أن يبدأ بـ http:// أو https://)
-- تحقق من API Key
-- تحقق من أن الخادم يعمل
-
-### الرسائل لا تُرسل
-- تحقق من صلاحية SEND_SMS
-- تحقق من أن الخدمة الخلفية تعمل
-- راجع السجلات للأخطاء
-
----
-
-## 📊 الإحصائيات
-
-- **عدد الشاشات:** 6
-- **عدد الخدمات:** 6
-- **عدد الملفات Native:** 9
-- **Dependencies:** 17 مكتبة
-
----
-
-## 🔐 الأمان
-
-- API Key authentication
-- Device UUID للتعريف
-- نظام حظر الأجهزة
-- Idempotency keys لمنع التكرار
-
----
-
-## 📝 الإصدار
-
-**النسخة الحالية:** 1.0.0-PRO  
-**آخر تحديث:** 23 فبراير 2026
-
----
-
-## 📞 الدعم
-
-للمساعدة أو الإبلاغ عن مشاكل، راجع:
-- `تقرير_جاهزية_التطبيق_للاختبار.md`
-- `دليل_الاختبار_السريع.md`
-- `خارطة_الطريق_لتثبيت_التطبيق.md`
-
----
-
-## 📄 الترخيص
-
-جميع الحقوق محفوظة © 2026
+- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
+- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
