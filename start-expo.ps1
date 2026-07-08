@@ -1,5 +1,5 @@
 # Start Expo Go for Kingdom-of-Bees Mobile App
-$MobileDir = "d:\Kingdom-of-Bees\packages\db\packages\platform\mobile"
+$MobileDir = "C:\ALHudhud\ALHudhud\ALHudhudMobile"
 Write-Host "🚀 Starting Expo Go for Kingdom of Bees..." -ForegroundColor Cyan
 
 Set-Location $MobileDir
