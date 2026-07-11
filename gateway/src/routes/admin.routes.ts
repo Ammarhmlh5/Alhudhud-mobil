@@ -77,6 +77,22 @@ router.get('/connectors', async (req: Request, res: Response) => {
   res.json(connectors);
 });
 
+router.get('/presets', (_req: Request, res: Response) => {
+  const presets = [
+    { id: 'whatsapp', name: 'WhatsApp Business API', platformType: 'Messaging', protocol: 'REST', authType: 'BEARER', description: 'إرسال واستقبال رسائل WhatsApp عبر API الأعمال' },
+    { id: 'telegram', name: 'Telegram Bot', platformType: 'Messaging', protocol: 'REST', authType: 'NONE', description: 'إرسال رسائل واستقبال أوامر من بوت Telegram' },
+    { id: 'slack', name: 'Slack Webhook', platformType: 'Messaging', protocol: 'REST', authType: 'NONE', description: 'إرسال إشعارات إلى قنوات Slack' },
+    { id: 'twilio-sms', name: 'Twilio SMS', platformType: 'Messaging', protocol: 'REST', authType: 'BASIC', description: 'إرسال رسائل SMS عبر Twilio API' },
+    { id: 'discord', name: 'Discord Webhook', platformType: 'Messaging', protocol: 'REST', authType: 'NONE', description: 'إرسال رسائل إلى قنوات Discord' },
+    { id: 'rest-basic', name: 'API عام (REST)', platformType: 'Custom', protocol: 'REST', authType: 'NONE', description: 'اتصال بأي REST API مخصص' },
+    { id: 'websocket-basic', name: 'WebSocket عام', platformType: 'Custom', protocol: 'WebSocket', authType: 'NONE', description: 'اتصال مباشر بأي خادم WebSocket' },
+    { id: 'google-sheets', name: 'Google Sheets API', platformType: 'Productivity', protocol: 'REST', authType: 'OAUTH2', description: 'قراءة وكتابة جداول Google Sheets' },
+    { id: 'github', name: 'GitHub API', platformType: 'Development', protocol: 'REST', authType: 'BEARER', description: 'الوصول إلى GitHub repositories، issues، PRs' },
+    { id: 'notion', name: 'Notion API', platformType: 'Productivity', protocol: 'REST', authType: 'BEARER', description: 'إدارة قواعد بيانات وصفحات Notion' },
+  ];
+  res.json(presets);
+});
+
 router.get('/devices', async (req: Request, res: Response) => {
   const devices = await authService.getAllDevices();
   res.json(devices);

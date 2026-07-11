@@ -76,14 +76,14 @@ router.post('/sync', async (req: Request, res: Response) => {
         await execute(`
           UPDATE connectors SET
             name = ?, platform_type = ?, protocol = ?, endpoint_url = ?,
-            http_method = ?, headers = ?, auth_config = ?, data_mapping = ?,
-            sync_interval = ?, is_active = ?, last_status = ?,
+            http_method = ?, headers = ?, auth_type = ?, auth_config = ?,
+            data_mapping = ?, sync_interval = ?, is_active = ?, last_status = ?,
             updated_at = NOW()
           WHERE id = ? AND user_id = ?
         `, [
           c.name, c.platform_type, c.protocol, c.endpoint_url,
-          c.http_method || 'POST', c.headers || '{}', c.auth_config || '{}',
-          c.data_mapping || null, c.sync_interval || null,
+          c.http_method || 'POST', c.headers || '{}', c.auth_type || 'NONE',
+          c.auth_config || '{}', c.data_mapping || null, c.sync_interval || null,
           c.is_active !== undefined ? c.is_active : true,
           c.last_status || 'UNKNOWN',
           c.id, user.id,
@@ -92,13 +92,14 @@ router.post('/sync', async (req: Request, res: Response) => {
       } else {
         await execute(`
           INSERT INTO connectors (id, user_id, name, platform_type, protocol, endpoint_url,
-            http_method, headers, auth_config, data_mapping, sync_interval,
+            http_method, headers, auth_type, auth_config, data_mapping, sync_interval,
             is_active, last_status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
         `, [
           c.id || crypto.randomUUID(), user.id, c.name, c.platform_type, c.protocol,
           c.endpoint_url, c.http_method || 'POST', c.headers || '{}',
-          c.auth_config || '{}', c.data_mapping || null, c.sync_interval || null,
+          c.auth_type || 'NONE', c.auth_config || '{}', c.data_mapping || null,
+          c.sync_interval || null,
           c.is_active !== undefined ? c.is_active : true,
           c.last_status || 'UNKNOWN',
         ]);
