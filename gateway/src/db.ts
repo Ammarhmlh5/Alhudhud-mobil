@@ -122,6 +122,28 @@ export async function initDb(): Promise<Database> {
     )
   `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS devices (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      api_key TEXT UNIQUE NOT NULL,
+      serial_number TEXT,
+      ip_address TEXT,
+      device_name TEXT,
+      device_model TEXT,
+      os_name TEXT,
+      os_version TEXT,
+      app_version TEXT,
+      is_active INTEGER DEFAULT 1,
+      last_active_at TEXT DEFAULT (datetime('now')),
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `);
+
+  db.run('CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_devices_api_key ON devices(api_key)');
+
   saveDb();
   return db;
 }

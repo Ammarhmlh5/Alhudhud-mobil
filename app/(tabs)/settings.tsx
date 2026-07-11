@@ -8,13 +8,16 @@ import { useAuth } from '@/hooks/useAuth';
 import { useThemeMode } from '@/lib/context/theme-context';
 import { connectorManager } from '@/lib/connectors/manager';
 import { ConnectorConfig } from '@/lib/connectors/types';
+import { ApiKeyModal } from '@/components/ApiKeyModal';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, requestApiKey } = useAuth();
   const { themeMode, setThemeMode } = useThemeMode();
   const [connectors, setConnectors] = useState<ConnectorConfig[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [currentApiKey, setCurrentApiKey] = useState('');
 
   const loadConnectors = useCallback(async () => {
     const result = await connectorManager.getAll();
@@ -40,6 +43,23 @@ export default function SettingsScreen() {
         onPress: async () => {
           await logout();
           router.replace('/auth/login');
+        },
+      },
+    ]);
+  };
+
+  const handleRequestApiKey = async () => {
+    Alert.alert('طلب مفتاح API', 'سيتم إرسال مفتاح API إلى بريدك الإلكتروني', [
+      { text: 'إلغاء', style: 'cancel' },
+      {
+        text: 'إرسال',
+        onPress: async () => {
+          try {
+            const result = await requestApiKey();
+            Alert.alert('تم الإرسال', 'تم إرسال المفتاح إلى بريدك الإلكتروني');
+          } catch (error: any) {
+            Alert.alert('خطأ', error.message || 'فشل إرسال المفتاح');
+          }
         },
       },
     ]);
@@ -175,6 +195,15 @@ export default function SettingsScreen() {
         />
       </Section>
 
+      <Section title="الأمان">
+        <SettingRow
+          icon="key.fill"
+          label="طلب مفتاح API"
+          value="يُرسل للبريد"
+          onPress={handleRequestApiKey}
+        />
+      </Section>
+
       {user?.role === 'admin' && (
         <Section title="الإدارة">
           <SettingRow
@@ -196,6 +225,12 @@ export default function SettingsScreen() {
         <IconSymbol name="rectangle.portrait.and.arrow.right" size={20} color="#FF4D4F" />
         <ThemedText style={styles.logoutText}>تسجيل الخروج</ThemedText>
       </TouchableOpacity>
+
+      <ApiKeyModal
+        visible={showApiKeyModal}
+        apiKey={currentApiKey}
+        onClose={() => setShowApiKeyModal(false)}
+      />
     </ScrollView>
   );
 }

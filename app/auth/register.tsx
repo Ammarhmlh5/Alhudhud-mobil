@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { useAuth } from '@/hooks/useAuth';
+import { ApiKeyModal } from '@/components/ApiKeyModal';
 
 export default function RegisterScreen() {
     const router = useRouter();
@@ -14,6 +15,8 @@ export default function RegisterScreen() {
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+    const [newApiKey, setNewApiKey] = useState('');
 
     const handleRegister = async () => {
         if (!name || !email || !password || !confirmPassword) {
@@ -31,13 +34,23 @@ export default function RegisterScreen() {
 
         setLoading(true);
         try {
-            await register(name, email, password);
-            router.replace('/(tabs)');
+            const result = await register(name, email, password);
+            if (result.apiKey) {
+                setNewApiKey(result.apiKey);
+                setShowApiKeyModal(true);
+            } else {
+                router.replace('/(tabs)');
+            }
         } catch (error: any) {
             Alert.alert('فشل إنشاء الحساب', error.message);
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleApiKeyModalClose = () => {
+        setShowApiKeyModal(false);
+        router.replace('/(tabs)');
     };
 
     return (
@@ -121,6 +134,12 @@ export default function RegisterScreen() {
                     </TouchableOpacity>
                 </ThemedView>
             </ScrollView>
+
+            <ApiKeyModal
+                visible={showApiKeyModal}
+                apiKey={newApiKey}
+                onClose={handleApiKeyModalClose}
+            />
         </KeyboardAvoidingView>
     );
 }

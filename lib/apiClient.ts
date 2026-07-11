@@ -1,4 +1,5 @@
 import { getDB } from './db/init';
+import * as SecureStore from 'expo-secure-store';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -26,13 +27,22 @@ class ApiClient {
         }
     }
 
-    async request(path: string, options: RequestInit = {}) {
-        const token = await this.getToken();
+    async getApiKey(): Promise<string | null> {
+        try {
+            return await SecureStore.getItemAsync('api_key');
+        } catch {
+            return null;
+        }
+    }
 
-        const headers = {
+    async request(path: string, options: RequestInit = {}) {
+        const [token, apiKey] = await Promise.all([this.getToken(), this.getApiKey()]);
+
+        const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-            ...options.headers,
+            ...(apiKey ? { 'X-Device-Key': apiKey } : {}),
+            ...(options.headers as Record<string, string> || {}),
         };
 
         const response = await fetch(`${API_URL}${path}`, {

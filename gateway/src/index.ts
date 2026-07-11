@@ -9,6 +9,7 @@ import webhookRoutes from './routes/webhook.routes';
 import adminRoutes from './routes/admin.routes';
 import syncRoutes from './routes/sync.routes';
 import connectorRoutes from './routes/connector.routes';
+import deviceRoutes from './routes/device.routes';
 import { initWebSocket } from './services/ws.service';
 import { startSyncScheduler } from './services/sync-scheduler.service';
 
@@ -27,6 +28,7 @@ app.use('/api/webhook', webhookRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/connectors', connectorRoutes);
+app.use('/api/devices', deviceRoutes);
 
 app.get('/api/setup/status', (_req, res) => {
   res.json({

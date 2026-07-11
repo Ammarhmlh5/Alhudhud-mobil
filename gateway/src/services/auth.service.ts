@@ -135,6 +135,7 @@ export const authService = {
     const messages = await queryOne('SELECT COUNT(*) as total FROM message_logs');
     const webhooks = await queryOne('SELECT COUNT(*) as total FROM webhook_events');
     const connectors = await queryOne('SELECT COUNT(*) as total FROM connectors');
+    const devices = await queryOne('SELECT COUNT(*) as total FROM devices');
 
     return {
       totalUsers: users?.total || 0,
@@ -142,6 +143,106 @@ export const authService = {
       totalMessages: messages?.total || 0,
       totalWebhooks: webhooks?.total || 0,
       totalConnectors: connectors?.total || 0,
+      totalDevices: devices?.total || 0,
     };
+  },
+
+  generateApiKey(): string {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let key = 'ahh_live_';
+    for (let i = 0; i < 48; i++) {
+      key += chars.charAt(crypto.randomInt(chars.length));
+    }
+    return key;
+  },
+
+  async registerDevice(userId: string, deviceInfo: {
+    serialNumber?: string;
+    ipAddress?: string;
+    deviceName?: string;
+    deviceModel?: string;
+    osName?: string;
+    osVersion?: string;
+    appVersion?: string;
+  }) {
+    const deviceId = crypto.randomUUID();
+    const apiKey = this.generateApiKey();
+
+    await execute(
+      `INSERT INTO devices (id, user_id, api_key, serial_number, ip_address, device_name, device_model, os_name, os_version, app_version)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [deviceId, userId, apiKey, deviceInfo.serialNumber || null, deviceInfo.ipAddress || null,
+       deviceInfo.deviceName || null, deviceInfo.deviceModel || null,
+       deviceInfo.osName || null, deviceInfo.osVersion || null, deviceInfo.appVersion || null]
+    );
+
+    return { id: deviceId, apiKey };
+  },
+
+  async findOrCreateDevice(userId: string, deviceInfo: {
+    serialNumber?: string;
+    ipAddress?: string;
+    deviceName?: string;
+    deviceModel?: string;
+    osName?: string;
+    osVersion?: string;
+    appVersion?: string;
+  }) {
+    let device = deviceInfo.serialNumber
+      ? await queryOne('SELECT * FROM devices WHERE user_id = ? AND serial_number = ?', [userId, deviceInfo.serialNumber])
+      : null;
+
+    if (device) {
+      await execute(
+        'UPDATE devices SET ip_address = ?, device_name = ?, device_model = ?, os_version = ?, app_version = ?, last_active_at = NOW() WHERE id = ?',
+        [deviceInfo.ipAddress || device.ip_address, deviceInfo.deviceName || device.device_name,
+         deviceInfo.deviceModel || device.device_model, deviceInfo.osVersion || device.os_version,
+         deviceInfo.appVersion || device.app_version, device.id]
+      );
+      return { id: device.id, apiKey: device.api_key, isNew: false };
+    }
+
+    return { ...await this.registerDevice(userId, deviceInfo), isNew: true };
+  },
+
+  async getApiKeyByUser(userId: string) {
+    const device = await queryOne('SELECT * FROM devices WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [userId]);
+    return device ? device.api_key : null;
+  },
+
+  async getDevicesByUser(userId: string) {
+    return queryAll(
+      'SELECT id, serial_number, ip_address, device_name, device_model, os_name, os_version, app_version, is_active, last_active_at, created_at FROM devices WHERE user_id = ? ORDER BY last_active_at DESC',
+      [userId]
+    );
+  },
+
+  async getDeviceApiKey(userId: string, deviceId: string) {
+    const device = await queryOne('SELECT api_key FROM devices WHERE id = ? AND user_id = ?', [deviceId, userId]);
+    return device ? device.api_key : null;
+  },
+
+  async revokeDevice(deviceId: string, userId: string) {
+    await execute('DELETE FROM devices WHERE id = ? AND user_id = ?', [deviceId, userId]);
+  },
+
+  async getAllDevices() {
+    return queryAll(`
+      SELECT d.id, d.serial_number, d.ip_address, d.device_name, d.device_model,
+             d.os_name, d.os_version, d.is_active, d.last_active_at, d.created_at,
+             u.email as user_email, u.name as user_name
+      FROM devices d LEFT JOIN users u ON d.user_id = u.id ORDER BY d.last_active_at DESC
+    `);
+  },
+
+  async findDeviceByApiKey(apiKey: string) {
+    return queryOne('SELECT * FROM devices WHERE api_key = ? AND is_active = 1', [apiKey]);
+  },
+
+  async verifyApiKey(apiKey: string): Promise<{ userId: string; deviceId: string } | null> {
+    const device = await queryOne('SELECT id, user_id FROM devices WHERE api_key = ? AND is_active = 1', [apiKey]);
+    if (!device) return null;
+    await execute('UPDATE devices SET last_active_at = NOW() WHERE id = ?', [device.id]);
+    return { userId: device.user_id, deviceId: device.id };
   },
 };

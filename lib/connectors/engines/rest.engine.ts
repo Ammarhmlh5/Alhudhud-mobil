@@ -1,5 +1,6 @@
 import { ConnectorConfig } from '../types';
 import { oauth2Engine } from './oauth2.engine';
+import { getStoredApiKey } from '../../utils/device-info';
 
 interface RequestOptions {
   method: string;
@@ -53,6 +54,11 @@ export class RestEngine {
     };
 
     await this.applyAuth(config, headers);
+
+    const deviceKey = await getStoredApiKey().catch(() => null);
+    if (deviceKey) {
+      headers['X-Device-Key'] = deviceKey;
+    }
 
     const options: RequestOptions = {
       method: payload ? (config.httpMethod || 'POST') : 'GET',

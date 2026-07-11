@@ -6,12 +6,18 @@ const router = Router();
 
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, deviceInfo } = req.body;
     if (!email || !password || !name) {
       return res.status(400).json({ message: 'جميع الحقول مطلوبة' });
     }
     const user = await authService.register(email, password, name);
-    res.status(201).json(user);
+
+    let device = null;
+    if (deviceInfo) {
+      device = await authService.registerDevice(user.id, deviceInfo);
+    }
+
+    res.status(201).json({ ...user, apiKey: device?.apiKey || null });
   } catch (error: any) {
     res.status(400).json({ message: error.message });
   }
@@ -19,12 +25,18 @@ router.post('/register', async (req: Request, res: Response) => {
 
 router.post('/login', async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, deviceInfo } = req.body;
     if (!email || !password) {
       return res.status(400).json({ message: 'البريد الإلكتروني وكلمة المرور مطلوبان' });
     }
     const result = await authService.login(email, password);
-    res.json(result);
+
+    let device = null;
+    if (deviceInfo) {
+      device = await authService.findOrCreateDevice(result.user.id, deviceInfo);
+    }
+
+    res.json({ ...result, apiKey: device?.apiKey || null, isNewDevice: device?.isNew || false });
   } catch (error: any) {
     res.status(401).json({ message: error.message });
   }
@@ -32,12 +44,18 @@ router.post('/login', async (req: Request, res: Response) => {
 
 router.post('/google', async (req: Request, res: Response) => {
   try {
-    const { idToken } = req.body;
+    const { idToken, deviceInfo } = req.body;
     if (!idToken) {
       return res.status(400).json({ message: 'Google ID token مطلوب' });
     }
     const result = await authService.googleLogin(idToken);
-    res.json(result);
+
+    let device = null;
+    if (deviceInfo) {
+      device = await authService.findOrCreateDevice(result.user.id, deviceInfo);
+    }
+
+    res.json({ ...result, apiKey: device?.apiKey || null, isNewDevice: device?.isNew || false });
   } catch (error: any) {
     res.status(401).json({ message: error.message });
   }
@@ -89,6 +107,36 @@ router.put('/subscription', async (req: Request, res: Response) => {
   await execute('UPDATE subscriptions SET plan = ?, status = ? WHERE user_id = ?', [plan, 'active', decoded.id]);
   const updated = await queryOne('SELECT * FROM subscriptions WHERE user_id = ?', [decoded.id]);
   res.json(updated);
+});
+
+router.get('/api-key', async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ message: 'Unauthorized' });
+
+  const decoded = authService.verifyToken(token);
+  if (!decoded) return res.status(401).json({ message: 'Invalid token' });
+
+  const apiKey = await authService.getApiKeyByUser(decoded.id);
+  res.json({ apiKey });
+});
+
+router.post('/request-api-key', async (req: Request, res: Response) => {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ message: 'Unauthorized' });
+
+  const decoded = authService.verifyToken(token);
+  if (!decoded) return res.status(401).json({ message: 'Invalid token' });
+
+  let apiKey = await authService.getApiKeyByUser(decoded.id);
+  if (!apiKey) {
+    const device = await authService.registerDevice(decoded.id, {});
+    apiKey = device.apiKey;
+  }
+
+  const { sendApiKeyEmail } = await import('../services/email.service');
+  await sendApiKeyEmail(decoded.email, apiKey);
+
+  res.json({ success: true, message: 'تم إرسال المفتاح إلى بريدك الإلكتروني' });
 });
 
 export default router;

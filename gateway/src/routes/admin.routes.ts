@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { authService } from '../services/auth.service';
-import { queryAll } from '../db';
+import { queryAll, execute } from '../db';
 
 const router = Router();
 
@@ -75,6 +75,16 @@ router.get('/connectors', async (req: Request, res: Response) => {
   `, [limit]);
 
   res.json(connectors);
+});
+
+router.get('/devices', async (req: Request, res: Response) => {
+  const devices = await authService.getAllDevices();
+  res.json(devices);
+});
+
+router.delete('/devices/:id', async (req: Request, res: Response) => {
+  await execute('DELETE FROM devices WHERE id = ?', [req.params.id]);
+  res.json({ success: true });
 });
 
 export default router;

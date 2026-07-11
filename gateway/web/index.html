@@ -164,6 +164,7 @@
       <a href="#" data-page="connectors">&#x1F50C; الاتصالات</a>
       <a href="#" data-page="webhooks">&#x1F4E5; Webhooks</a>
       <a href="#" data-page="logs">&#x1F4DC; السجلات</a>
+      <a href="#" data-page="devices">&#x1F4F1; الأجهزة</a>
       <a href="#" data-page="migration">&#x1F504; الترحيل</a>
     </nav>
     <div class="sidebar-footer">
@@ -181,6 +182,7 @@
         <div class="stat-card"><div class="value" id="statConnectors">-</div><div class="label">الاتصالات</div></div>
         <div class="stat-card"><div class="value" id="statMessages">-</div><div class="label">الرسائل</div></div>
         <div class="stat-card"><div class="value" id="statWebhooks">-</div><div class="label">Webhooks</div></div>
+        <div class="stat-card"><div class="value" id="statDevices">-</div><div class="label">الأجهزة</div></div>
       </div>
       <div class="card">
         <div class="card-header"><h3>آخر الأحداث</h3></div>
@@ -244,6 +246,20 @@
           <table>
             <thead><tr><th>الاتجاه</th><th>الحالة</th><th>المستخدم</th><th>الاتصال</th><th>التاريخ</th></tr></thead>
             <tbody id="logsTable"><tr><td colspan="5" class="empty">جاري التحميل...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Devices -->
+    <div id="page-devices" class="page">
+      <h2>&#x1F4F1; إدارة الأجهزة</h2>
+      <div class="card">
+        <div class="card-header"><h3>جميع الأجهزة المسجلة</h3></div>
+        <div class="card-body">
+          <table>
+            <thead><tr><th>المستخدم</th><th>الجهاز</th><th>IP</th><th>Serial</th><th>النظام</th><th>آخر نشاط</th><th>الإجراءات</th></tr></thead>
+            <tbody id="devicesTable"><tr><td colspan="7" class="empty">جاري التحميل...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -343,6 +359,7 @@ async function loadDashboard() {
     document.getElementById('statConnectors').textContent = stats.totalConnectors || 0;
     document.getElementById('statMessages').textContent = stats.totalMessages || 0;
     document.getElementById('statWebhooks').textContent = stats.totalWebhooks || 0;
+    document.getElementById('statDevices').textContent = stats.totalDevices || 0;
 
     const webhooks = await api('/api/admin/webhooks?limit=10');
     const tbody = document.getElementById('recentEvents');
@@ -465,6 +482,43 @@ async function loadLogs() {
   }
 }
 
+async function loadDevices() {
+  try {
+    const devices = await api('/api/admin/devices?limit=100');
+    const tbody = document.getElementById('devicesTable');
+    if (devices.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty">لا توجد أجهزة مسجلة</td></tr>';
+      return;
+    }
+    tbody.innerHTML = devices.map(d => `
+      <tr>
+        <td>${esc(d.user_name || '-')}<br><small style="color:var(--text2)">${esc(d.user_email || '')}</small></td>
+        <td>${esc(d.device_name || '-')}\n<small style="color:var(--text2)">${esc(d.device_model || '')}</small></td>
+        <td><code style="font-size:11px">${esc(d.ip_address || '-')}</code></td>
+        <td><code style="font-size:11px">${esc(d.serial_number || '-')}</code></td>
+        <td>${esc(d.os_name || '')} ${esc(d.os_version || '')}</td>
+        <td>${formatDate(d.last_active_at)}</td>
+        <td><button class="btn btn-sm btn-danger" onclick="revokeDevice('${d.id}')">إلغاء</button></td>
+      </tr>
+    `).join('');
+  } catch (e) {
+    console.error('Devices load error:', e);
+  }
+}
+
+async function revokeDevice(id) {
+  if (!confirm('هل تريد إلغاء هذا الجهاز؟ لن يتمكن من الوصول بعد الآن.')) return;
+  try {
+    await fetch(`${API}/api/admin/devices/${id}`, {
+      method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }
+    });
+    showToast('تم إلغاء الجهاز');
+    loadDevices();
+  } catch (e) {
+    showToast('فشل إلغاء الجهاز');
+  }
+}
+
 // --- Navigation ---
 document.querySelectorAll('.sidebar nav a').forEach(a => {
   a.addEventListener('click', (e) => {
@@ -479,6 +533,7 @@ document.querySelectorAll('.sidebar nav a').forEach(a => {
     else if (page === 'connectors') loadConnectors();
     else if (page === 'webhooks') loadWebhooks();
     else if (page === 'logs') loadLogs();
+    else if (page === 'devices') loadDevices();
     else if (page === 'migration') loadMigration();
   });
 });
