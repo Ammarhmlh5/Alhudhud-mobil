@@ -44,6 +44,11 @@ app.get('/dashboard', (_req, res) => {
   res.sendFile(path.join(__dirname, '../web/index.html'));
 });
 
+// Setup helper page
+app.get('/setup', (_req, res) => {
+  res.sendFile(path.join(__dirname, '../web/setup.html'));
+});
+
 const server = http.createServer(app);
 
 initDb().then(() => {

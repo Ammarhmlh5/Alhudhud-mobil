@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>إعداد قاعدة البيانات - AlHudhud</title>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #f1f5f9; max-width: 800px; margin: 40px auto; padding: 20px; }
+    h1 { color: #3b82f6; }
+    .step { background: #1e293b; border: 1px solid #475569; border-radius: 8px; padding: 20px; margin: 16px 0; }
+    .step h3 { margin-bottom: 8px; }
+    .step p { color: #94a3b8; font-size: 14px; }
+    .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600; margin: 8px; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-success { background: #22c55e; color: white; }
+    pre { background: #0f172a; border: 1px solid #475569; border-radius: 8px; padding: 16px; overflow-x: auto; font-size: 12px; direction: ltr; text-align: left; max-height: 400px; overflow-y: auto; }
+    .status { padding: 8px 12px; border-radius: 8px; margin: 8px 0; }
+    .ok { background: rgba(34,197,94,0.15); color: #22c55e; }
+    .err { background: rgba(239,68,68,0.15); color: #ef4444; }
+  </style>
+</head>
+<body>
+  <h1>&#x1F50C; إعداد قاعدة البيانات</h1>
+
+  <div class="step">
+    <h3>الخطوة 1: فتح SQL Editor</h3>
+    <p>اضغط الزر لفتح محرر SQL في Supabase Dashboard</p>
+    <button class="btn btn-primary" onclick="window.open('https://supabase.com/dashboard/project/rdkqvmvctucyxxfifvpe/sql/new','_blank')">فتح SQL Editor</button>
+  </div>
+
+  <div class="step">
+    <h3>الخطوة 2: نسخ SQL والصقه</h3>
+    <p>اضغط "نسخ SQL"، ثم الصقه في SQL Editor واضغط Run</p>
+    <button class="btn btn-success" onclick="copySQL()">نسخ SQL</button>
+    <div id="copyStatus"></div>
+  </div>
+
+  <div class="step">
+    <h3>SQL المطلوب:</h3>
+    <pre id="sqlCode"></pre>
+  </div>
+
+  <div class="step">
+    <h3>الخطوة 3: التحقق</h3>
+    <p>بعد تنفيذ SQL، اضغط "تحقق" للتأكد من نجاح الإعداد</p>
+    <button class="btn btn-primary" onclick="verifyTables()">تحقق</button>
+    <div id="verifyResult"></div>
+  </div>
+
+<script>
+const SQL = `CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  password TEXT,
+  role TEXT DEFAULT 'user',
+  is_active BOOLEAN DEFAULT true,
+  auth_provider TEXT DEFAULT 'email',
+  google_id TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS connectors (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  platform_type TEXT NOT NULL,
+  protocol TEXT NOT NULL DEFAULT 'REST',
+  endpoint_url TEXT NOT NULL,
+  http_method TEXT DEFAULT 'POST',
+  headers JSONB DEFAULT '{}',
+  auth_type TEXT DEFAULT 'NONE',
+  auth_config JSONB DEFAULT '{}',
+  data_mapping JSONB,
+  is_active BOOLEAN DEFAULT true,
+  last_status TEXT DEFAULT 'UNKNOWN',
+  sync_interval INTEGER,
+  last_synced_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS webhook_events (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  connector_id UUID REFERENCES connectors(id) ON DELETE SET NULL,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  method TEXT NOT NULL,
+  headers JSONB,
+  body TEXT,
+  source_ip TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS message_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  connector_id UUID REFERENCES connectors(id) ON DELETE SET NULL,
+  direction TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  payload JSONB,
+  error_message TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  plan TEXT DEFAULT 'free',
+  status TEXT DEFAULT 'active',
+  started_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS sync_queue (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  table_name TEXT NOT NULL,
+  row_id TEXT,
+  operation TEXT NOT NULL,
+  data JSONB,
+  status TEXT DEFAULT 'PENDING',
+  error_message TEXT,
+  retry_count INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS _migrations (
+  id TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  applied_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_connectors_user_id ON connectors(user_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_connector_id ON webhook_events(connector_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_user_id ON webhook_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_created_at ON webhook_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_message_logs_user_id ON message_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_message_logs_connector_id ON message_logs(connector_id);
+CREATE INDEX IF NOT EXISTS idx_message_logs_status ON message_logs(status);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_user_id ON sync_queue(user_id);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
+
+CREATE OR REPLACE FUNCTION exec_sql(query text)
+RETURNS SETOF json AS $$
+BEGIN
+  RETURN QUERY EXECUTE query;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+INSERT INTO users (id, email, name, password, role, is_active, auth_provider)
+VALUES ('00000000-0000-0000-0000-000000000001', 'admin@alhudhud.com', 'Admin',
+  '$2a$12$LJ3m4ys3Lz0YBNOURq0y5OjCfMJM1aHqN1XVh5Z6gR5bS7dD1eG3e',
+  'admin', true, 'email')
+ON CONFLICT (email) DO NOTHING;
+
+INSERT INTO subscriptions (user_id, plan, status)
+VALUES ('00000000-0000-0000-0000-000000000001', 'business', 'active')
+ON CONFLICT (user_id) DO NOTHING;`;
+
+document.getElementById('sqlCode').textContent = SQL;
+
+function copySQL() {
+  navigator.clipboard.writeText(SQL).then(() => {
+    document.getElementById('copyStatus').innerHTML = '<div class="status ok">تم نسخ SQL بنجاح!</div>';
+  }).catch(() => {
+    document.getElementById('copyStatus').innerHTML = '<div class="status err">فشل النسخ - انسخ يدوياً</div>';
+  });
+}
+
+async function verifyTables() {
+  const serviceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJka3F2bXZjdHVjeXh4ZmlmdnBlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MzY3MDMyOSwiZXhwIjoyMDk5MjQ2MzI5fQ.mFsPX_q2WXCdp4lDppuReYOrO2DyrR00pHfGxZk3AjQ';
+  const tables = ['users', 'connectors', 'webhook_events', 'message_logs', 'subscriptions'];
+  const results = [];
+
+  for (const table of tables) {
+    try {
+      const r = await fetch('https://rdkqvmvctucyxxfifvpe.supabase.co/rest/v1/' + table + '?select=id&limit=1', {
+        headers: { 'apikey': serviceKey, 'Authorization': 'Bearer ' + serviceKey }
+      });
+      if (r.ok) results.push('<div class="status ok">✅ ' + table + ' موجود</div>');
+      else results.push('<div class="status err">❌ ' + table + ' (' + r.status + ')</div>');
+    } catch (e) {
+      results.push('<div class="status err">❌ ' + table + ' (خطأ)</div>');
+    }
+  }
+  document.getElementById('verifyResult').innerHTML = results.join('');
+}
+</script>
+</body>
+</html>
