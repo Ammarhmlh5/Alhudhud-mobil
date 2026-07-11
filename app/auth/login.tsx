@@ -1,17 +1,61 @@
 import { useState } from 'react';
-import { StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { useAuth } from '@/hooks/useAuth';
+import * as AuthSession from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
+
+WebBrowser.maybeCompleteAuthSession();
+
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '';
 
 export default function LoginScreen() {
     const router = useRouter();
-    const { login } = useAuth();
+    const { login, googleLogin } = useAuth();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+
+    const discovery = {
+        authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+        tokenEndpoint: 'https://oauth2.googleapis.com/token',
+        revocationEndpoint: 'https://oauth2.googleapis.com/revoke',
+    };
+
+    const [request, , promptAsync] = AuthSession.useAuthRequest(
+        {
+            clientId: GOOGLE_WEB_CLIENT_ID,
+            redirectUri: AuthSession.makeRedirectUri({
+                scheme: 'alhudhud',
+                path: 'auth',
+            }),
+            scopes: ['openid', 'profile', 'email'],
+            usePKCE: true,
+        },
+        discovery
+    );
+
+    const handleGoogleLogin = async () => {
+        try {
+            const result = await promptAsync();
+            if (result.type === 'success') {
+                setLoading(true);
+                try {
+                    await googleLogin(result.authentication?.idToken || result.params.id_token || '');
+                    router.replace('/(tabs)');
+                } catch (error: any) {
+                    Alert.alert('فشل تسجيل الدخول', error.message || 'حدث خطأ أثناء تسجيل الدخول بحساب Google');
+                } finally {
+                    setLoading(false);
+                }
+            }
+        } catch {
+            Alert.alert('خطأ', 'تم إلغاء عملية تسجيل الدخول');
+        }
+    };
 
     const handleLogin = async () => {
         if (!email || !password) {
@@ -41,11 +85,35 @@ export default function LoginScreen() {
                         source={require('@/assets/images/icon.png')}
                         style={styles.logo}
                     />
-                    <ThemedText type="title" style={styles.title}>مملكة النحل</ThemedText>
-                    <ThemedText style={styles.subtitle}>سجل دخولك لإدارة مناحلك</ThemedText>
+                    <ThemedText type="title" style={styles.title}>الهدهد موبايل</ThemedText>
+                    <ThemedText style={styles.subtitle}>سجل دخولك للوصول إلى خدماتك</ThemedText>
                 </ThemedView>
 
                 <ThemedView style={styles.form}>
+                    {GOOGLE_WEB_CLIENT_ID ? (
+                        <>
+                            <TouchableOpacity
+                                style={[styles.googleButton, loading && styles.buttonDisabled]}
+                                onPress={handleGoogleLogin}
+                                disabled={loading || !request}
+                            >
+                                {loading ? (
+                                    <ActivityIndicator color="#333" />
+                                ) : (
+                                    <View style={styles.googleBtnContent}>
+                                        <ThemedText style={styles.googleBtnText}>تسجيل الدخول بحساب Google</ThemedText>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+
+                            <View style={styles.dividerRow}>
+                                <View style={styles.dividerLine} />
+                                <ThemedText style={styles.dividerText}>أو</ThemedText>
+                                <View style={styles.dividerLine} />
+                            </View>
+                        </>
+                    ) : null}
+
                     <ThemedText style={styles.label}>البريد الإلكتروني</ThemedText>
                     <TextInput
                         style={styles.input}
@@ -161,6 +229,45 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 18,
         fontWeight: 'bold',
+    },
+    googleButton: {
+        backgroundColor: '#fff',
+        height: 56,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#ddd',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
+    },
+    googleBtnContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+    },
+    googleBtnText: {
+        color: '#333',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    dividerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        marginVertical: 4,
+    },
+    dividerLine: {
+        flex: 1,
+        height: 1,
+        backgroundColor: '#ddd',
+    },
+    dividerText: {
+        color: '#999',
+        fontSize: 13,
     },
     linkButton: {
         alignItems: 'center',

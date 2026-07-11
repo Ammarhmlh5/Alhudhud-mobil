@@ -1,60 +1,102 @@
-# Welcome to your Expo app 👋
+# AlHudhud Connect - Universal Integration Platform
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+منصة تكامل عالمية (Zero-Code) - تطبيق جوال يتصل بأي نظام خارجي بدون برمجة.
 
-## Get started
+🔗 **الملف المرجعي:** [PROJECT_REFERENCE.md](PROJECT_REFERENCE.md)
 
-1. Install dependencies
+## البدء السريع
 
-   ```bash
-   npm install
-   ```
-
-2. Configure Supabase (required)
-
-   Create a `.env` file in the mobile directory with:
-   ```
-   EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-   EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
-   ```
-   
-   Get these values from your Supabase Dashboard → Settings → API
-
-3. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
+### Mobile App
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### Gateway (Backend)
+```bash
+cd gateway
+npm install
+cp .env.example .env   # عدّل JWT_SECRET
+npm run seed            # إنشاء حساب الأدمن
+npm run dev             # تشغيل البوابة
+```
 
-## Learn more
+## هيكل المشروع
 
-To learn more about developing your project with Expo, look at the following resources:
+```
+alhudhud-connect/
+├── app/                         # Expo Router screens
+│   ├── (tabs)/                  # Tab navigator (Dashboard)
+│   ├── auth/                    # تسجيل الدخول والتسجيل
+│   ├── connectors/              # إدارة الاتصالات
+│   │   ├── add.tsx              # إضافة اتصال
+│   │   ├── send.tsx             # إرسال بيانات
+│   │   ├── logs.tsx             # سجل الرسائل
+│   │   ├── mapping.tsx          # تعيين البيانات
+│   │   ├── webhooks.tsx         # أحداث Webhook
+│   │   └── [id]/                # تفاصيل الاتصال
+│   ├── subscription/            # الاشتراكات
+│   ├── admin/                   # لوحة الأدمن
+│   ├── marketplace/             # سوق المنصات
+│   └── onboarding/              # شاشة الترحيب
+├── components/                  # مكونات واجهة المستخدم
+├── lib/
+│   ├── connectors/              # نظام الاتصالات
+│   │   ├── types.ts             # تعريفات البيانات
+│   │   ├── manager.ts           # مدير الاتصالات (CRUD)
+│   │   ├── mapper.ts            # تعيين البيانات
+│   │   ├── presets.ts           # قوالب المنصات
+│   │   └── engines/             # محركات البروتوكولات
+│   ├── services/                # الخدمات
+│   │   ├── auth.service.ts      # المصادقة
+│   │   ├── gateway.service.ts   # اتصال Gateway (WebSocket)
+│   │   ├── admin.service.ts     # API الأدمن
+│   │   ├── sync.service.ts      # المزامنة
+│   │   └── notification.service.ts
+│   ├── db/init.ts               # قاعدة البيانات المحلية (SQLite)
+│   ├── apiClient.ts             # عميل HTTP
+│   └── supabaseClient.ts        # Supabase (placeholder)
+├── hooks/                       # React Hooks
+├── gateway/                     # Backend Server
+│   └── src/
+│       ├── db.ts                # قاعدة البيانات (sql.js)
+│       ├── seed.ts              # إنشاء بيانات أولية
+│       ├── routes/              # Express routes
+│       └── services/            # خدمات Gateway
+├── architecture/                # وثائق العمارة الفنية
+├── discussion/                  # مناقشات التطوير
+└── archive/                     # ملفات مؤرشفة
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## التكنولوجيا
 
-## Join the community
+### Mobile
+- Expo SDK 54 + React 19 + TypeScript
+- SQLite (expo-sqlite) للتخزين المحلي
+- Expo Router للتنقل
 
-Join our community of developers creating universal apps.
+### Gateway
+- Node.js + Express + TypeScript
+- SQLite (sql.js) للتخزين
+- WebSocket للاتصال الفوري
+- JWT للمصادقة + bcrypt لكلمات المرور
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## قاعدة البيانات
+
+### Mobile (`alhudhud_platform.db`)
+- `connectors` - إعدادات الاتصال بالمنصات
+- `sync_queue` - طابور المزامنة
+- `message_logs` - سجل الرسائل
+- `subscription_info` / `local_settings` - معلومات مخزنة محلياً
+
+### Gateway (`gateway.db`)
+- `users` - حسابات المستخدمين
+- `connectors` - اتصالات المستخدمين
+- `webhook_events` - أحداث Webhook
+- `message_logs` - سجل الرسائل
+- `subscriptions` - اشتراكات المستخدمين
+- `sync_queue` - طابور المزامنة
+
+## للمطورين
+
+قبل كتابة أي كود، اقرأ [PROJECT_REFERENCE.md](PROJECT_REFERENCE.md) و [architecture/](architecture/) أولاً.

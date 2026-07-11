@@ -1,6 +1,6 @@
 import { getDB } from './db/init';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.1.101:3001/api';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000/api';
 
 class ApiClient {
     private async getToken(): Promise<string | null> {
@@ -10,7 +10,7 @@ class ApiClient {
         try {
             const result: any = db.getFirstSync('SELECT value FROM local_settings WHERE key = "auth_token"');
             return result ? result.value : null;
-        } catch (e) {
+        } catch {
             return null;
         }
     }
@@ -40,11 +40,6 @@ class ApiClient {
             headers,
         });
 
-        if (response.status === 401) {
-            // Handle unauthorized (logout)
-            await this.setToken(null);
-        }
-
         return response;
     }
 
@@ -57,6 +52,17 @@ class ApiClient {
             method: 'POST',
             body: JSON.stringify(data),
         });
+    }
+
+    async put(path: string, data: any) {
+        return this.request(path, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    }
+
+    async delete(path: string) {
+        return this.request(path, { method: 'DELETE' });
     }
 }
 

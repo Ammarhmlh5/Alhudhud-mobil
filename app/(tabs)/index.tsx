@@ -1,82 +1,112 @@
-import { Image, StyleSheet, Platform, FlatList, TouchableOpacity, RefreshControl, ScrollView, View, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, FlatList, TouchableOpacity, RefreshControl, View, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useEffect } from 'react';
-import { HelloWave } from '@/components/HelloWave';
-import ParallaxScrollView from '@/components/ParallaxScrollView';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
-import { ApiaryCard } from '@/components/ApiaryCard';
-import { ApiaryContextSelector } from '@/components/ApiaryContextSelector';
 import { IconSymbol } from '@/components/ui/IconSymbol';
+import { connectorManager } from '@/lib/connectors/manager';
+import { connectorSyncService } from '@/lib/services/connector-sync.service';
 import { getDB } from '@/lib/db/init';
-import { SyncService } from '@/lib/services/sync.service';
+import { useThemeMode } from '@/lib/context/theme-context';
 import { useAuth } from '@/hooks/useAuth';
+import { useGateway } from '@/hooks/useGateway';
 import * as Haptics from 'expo-haptics';
-
-// Placeholder type
-type Apiary = {
-  id: string;
-  name: string;
-  type: string;
-  location?: string;
-  hiveCount?: number;
-};
+import { ConnectorConfig, ConnectorStats } from '@/lib/connectors/types';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  const [apiaries, setApiaries] = useState<Apiary[]>([]);
-  const [selectedApiaryId, setSelectedApiaryId] = useState<string | null>(null);
+  const { user, loading: authLoading, logout } = useAuth();
+  const { themeMode, setThemeMode } = useThemeMode();
+  const { connected: gatewayConnected } = useGateway();
+  const [connectors, setConnectors] = useState<ConnectorConfig[]>([]);
+  const [stats, setStats] = useState<ConnectorStats>({
+    total: 0, online: 0, offline: 0,
+    totalMessages: 0, successMessages: 0, failedMessages: 0,
+  });
   const [refreshing, setRefreshing] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [stats, setStats] = useState({ hiveCount: 0, inspectionCount: 0 });
 
-  // Redirect if not logged in
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace('/auth/login' as any);
-    }
-  }, [user, authLoading]);
-
-  // Load apiaries from local DB
-  const loadApiaries = useCallback(() => {
-    const db = getDB();
-    if (!db) return;
-
-    try {
-      const result = db.getAllSync('SELECT * FROM apiaries ORDER BY name ASC');
-      setApiaries(result as Apiary[]);
-
-      if (selectedApiaryId) {
-        const hives = db.getAllSync('SELECT count(*) as count FROM hives WHERE apiary_id = ?', [selectedApiaryId]);
-        const inspections = db.getAllSync('SELECT count(*) as count FROM inspections WHERE hive_id IN (SELECT id FROM hives WHERE apiary_id = ?)', [selectedApiaryId]);
-        setStats({
-          hiveCount: (hives[0] as any)?.count || 0,
-          inspectionCount: (inspections[0] as any)?.count || 0
-        });
+    if (user && !authLoading) {
+      const db = getDB();
+      if (db) {
+        const row = db.getFirstSync("SELECT value FROM local_settings WHERE key = 'onboarding_done'") as any;
+        if (!row) {
+          router.replace('/onboarding');
+        }
       }
-    } catch (e) {
-      console.error(e);
     }
-  }, [selectedApiaryId]);
+  }, [user, authLoading, router]);
 
   useEffect(() => {
-    if (user) loadApiaries();
-  }, [loadApiaries, user]);
+    if (user && gatewayConnected) {
+      connectorSyncService.fullSync().catch(() => {});
+    }
+  }, [user, gatewayConnected]);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      const result = await connectorSyncService.fullSync();
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert('تمت المزامنة', `تم إرسال ${result.pushed} واستيراد ${result.pulled} اتصال`);
+    } catch {
+      Alert.alert('خطأ', 'فشلت المزامنة');
+    } finally {
+      setSyncing(false);
+      loadData();
+    }
+  };
+
+  const loadData = useCallback(async () => {
+    const [allConnectors, currentStats] = await Promise.all([
+      connectorManager.getAll(),
+      connectorManager.getStats(),
+    ]);
+    setConnectors(allConnectors);
+    setStats(currentStats);
+  }, []);
+
+  useEffect(() => {
+    if (user) loadData();
+  }, [loadData, user]);
+
+  useEffect(() => {
+    const interval = setInterval(loadData, 30000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  useEffect(() => {
+    const checkSync = async () => {
+      const due = await connectorManager.getDueSyncs();
+      for (const c of due) {
+        await connectorManager.sendData(c.id, { auto_sync: true, timestamp: new Date().toISOString() });
+        await connectorManager.markSynced(c.id);
+      }
+      if (due.length > 0) loadData();
+    };
+    const syncTimer = setInterval(checkSync, 60000);
+    return () => clearInterval(syncTimer);
+  }, [loadData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await SyncService.sync(); // Trigger sync on pull-to-refresh
-    loadApiaries();
+    await loadData();
     setRefreshing(false);
-  }, [loadApiaries]);
+  }, [loadData]);
 
-  const handleManualSync = async () => {
-    setSyncing(true);
-    await SyncService.sync();
-    loadApiaries();
-    setSyncing(false);
-    Alert.alert('تمت المزامنة', 'تم تحديث البيانات مع السيرفر بنجاح');
+  const handleQuickTest = async (id: string) => {
+    try {
+      const result = await connectorManager.testConnection(id);
+      Haptics.notificationAsync(result.success ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error);
+      Alert.alert(
+        result.success ? 'متصل' : 'منفصل',
+        result.success ? `زمن الاستجابة: ${result.latency}ms` : result.error || 'فشل الاتصال'
+      );
+      loadData();
+    } catch {
+      Alert.alert('خطأ', 'فشل اختبار الاتصال');
+    }
   };
 
   if (authLoading) {
@@ -87,185 +117,169 @@ export default function HomeScreen() {
     );
   }
 
+  const getStatusColor = (status: string, isActive: boolean) => {
+    if (!isActive) return '#9E9E9E';
+    switch (status) {
+      case 'ONLINE': return '#4CAF50';
+      case 'OFFLINE': return '#F44336';
+      default: return '#FF9800';
+    }
+  };
+
   return (
     <ThemedView style={styles.container}>
-      <ApiaryContextSelector
-        apiaries={apiaries}
-        selectedApiaryId={selectedApiaryId}
-        onSelectApiary={setSelectedApiaryId}
-      />
-
-      {!selectedApiaryId ? (
-        /* NO SELECTION: Show List of Apiaries */
-        <FlatList
-          data={apiaries}
-          keyExtractor={(item) => item.id}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          ListHeaderComponent={() => (
-            <ThemedView style={styles.titleContainer}>
-              <View style={{ flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center' }}>
-                <ThemedText type="title">مرحباً بك! 👋</ThemedText>
-                <View style={{ flexDirection: 'row', gap: 16, alignItems: 'center' }}>
-                  <ThemedText style={{ fontSize: 10, opacity: 0.5 }}>
-                    آخر مزامنة: {new Date().toLocaleTimeString('ar-SA')}
-                  </ThemedText>
-                  <TouchableOpacity onPress={handleManualSync} disabled={syncing}>
-                    {syncing ? <ActivityIndicator size="small" color="#E6A23C" /> : <IconSymbol name="arrow.triangle.2.circlepath" size={24} color="#E6A23C" />}
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => {
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                    Alert.alert('تسجيل الخروج', 'هل أنت متأكد؟', [
-                      { text: 'إلغاء', style: 'cancel' },
-                      {
-                        text: 'خروج', style: 'destructive', onPress: () => {
-                          const { AuthService } = require('@/lib/services/auth.service');
-                          AuthService.logout().then(() => router.replace('/auth/login' as any));
-                        }
-                      }
-                    ]);
-                  }}>
-                    <IconSymbol name="rectangle.portrait.and.arrow.right" size={24} color="#FF4D4F" />
-                  </TouchableOpacity>
-                </View>
+      <FlatList
+        data={connectors}
+        keyExtractor={(item) => item.id}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        ListHeaderComponent={() => (
+          <ThemedView style={styles.header}>
+            <ThemedView style={styles.headerTop}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ThemedText type="title">لوحة التحكم</ThemedText>
+                <View style={[styles.gatewayDot, { backgroundColor: gatewayConnected ? '#4CAF50' : '#F44336' }]} />
               </View>
-              <ThemedText>اختر منحلاً للبدء في العمليات</ThemedText>
+              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => router.push('/subscription')}>
+                  <IconSymbol name="creditcard.fill" size={22} color="#E6A23C" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => {
+                  const modes: ('light' | 'dark' | 'system')[] = ['light', 'dark', 'system'];
+                  const next = modes[(modes.indexOf(themeMode) + 1) % modes.length];
+                  setThemeMode(next);
+                }}>
+                  <IconSymbol name={themeMode === 'dark' ? 'moon.fill' : themeMode === 'light' ? 'sun.max.fill' : 'circle.lefthalf.fill'} size={22} color="#888" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => router.push('/connectors/index')}>
+                  <IconSymbol name="antenna.radiowaves.left.and.right" size={22} color="#E6A23C" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => router.push('/connectors/logs')}>
+                  <IconSymbol name="doc.text.fill" size={22} color="#2196F3" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => router.push('/connectors/webhooks')}>
+                  <IconSymbol name="antenna.radiowaves.left.and.right" size={22} color="#4CAF50" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleSyncNow} disabled={syncing}>
+                  <IconSymbol name="arrow.triangle.2.circlepath" size={22} color={syncing ? '#ccc' : '#607D8B'} />
+                </TouchableOpacity>
+                {user?.role === 'admin' && (
+                  <TouchableOpacity onPress={() => router.push('/admin')}>
+                    <IconSymbol name="shield.fill" size={22} color="#9C27B0" />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => {
+                  Alert.alert('تسجيل الخروج', 'هل أنت متأكد؟', [
+                    { text: 'إلغاء', style: 'cancel' },
+                    { text: 'خروج', style: 'destructive', onPress: () => {
+                      logout().then(() => router.replace('/auth/login'));
+                    }},
+                  ]);
+                }}>
+                  <IconSymbol name="rectangle.portrait.and.arrow.right" size={22} color="#FF4D4F" />
+                </TouchableOpacity>
+              </View>
             </ThemedView>
-          )}
-          renderItem={({ item }) => (
-            <ApiaryCard
-              apiary={item}
-              onPress={() => setSelectedApiaryId(item.id)}
-            />
-          )}
-          ListEmptyComponent={() => (
-            <ThemedView style={styles.emptyContainer}>
-              <ThemedText>لا توجد مناحل مسجلة.</ThemedText>
-              <ThemedText>اضغط على + لإضافة منحل جديد.</ThemedText>
+
+            <ThemedView style={styles.statsRow}>
+              <ThemedView style={[styles.statCard, { backgroundColor: '#E3F2FD' }]}>
+                <ThemedText style={styles.statNumber}>{stats.online}/{stats.total}</ThemedText>
+                <ThemedText style={styles.statLabel}>متصل</ThemedText>
+              </ThemedView>
+              <ThemedView style={[styles.statCard, { backgroundColor: '#E8F5E9' }]}>
+                <ThemedText style={styles.statNumber}>{stats.successMessages}</ThemedText>
+                <ThemedText style={styles.statLabel}>رسائل ناجحة</ThemedText>
+              </ThemedView>
+              <ThemedView style={[styles.statCard, { backgroundColor: '#FFEBEE' }]}>
+                <ThemedText style={styles.statNumber}>{stats.failedMessages}</ThemedText>
+                <ThemedText style={styles.statLabel}>رسائل فاشلة</ThemedText>
+              </ThemedView>
             </ThemedView>
-          )}
-        />
-      ) : (
-        /* SELECTION MADE: Show Context-Based Dashboard */
-        <ScrollView contentContainerStyle={styles.dashboardContent}>
-          <ThemedView style={styles.dashboardHeader}>
-            <ThemedText type="subtitle">لوحة التحكم: {apiaries.find(a => a.id === selectedApiaryId)?.name}</ThemedText>
-            <TouchableOpacity onPress={() => setSelectedApiaryId(null)}>
-              <ThemedText style={{ color: '#E6A23C' }}>تغيير المنحل</ThemedText>
+
+            <TouchableOpacity
+              style={styles.manageBtn}
+              onPress={() => router.push('/connectors/index')}
+            >
+              <IconSymbol name="antenna.radiowaves.left.and.right" size={18} color="#E6A23C" />
+              <ThemedText style={styles.manageText}>إدارة الاتصالات</ThemedText>
             </TouchableOpacity>
           </ThemedView>
-
-          {/* MOCK ROLE CHECK: For demo, odd IDs are OWNER, even IDs are WORKER */}
-          {Number(selectedApiaryId) % 2 !== 0 ? (
-            <ThemedView style={styles.financialCard}>
-              <ThemedText type="subtitle" style={{ color: '#fff' }}>💰 التقارير المالية (المالك)</ThemedText>
-              <ThemedText style={{ color: '#fff' }}>مبيعات العسل: 5000 ر.س</ThemedText>
-              <ThemedText style={{ color: '#fff' }}>المصروفات: 1200 ر.س</ThemedText>
-            </ThemedView>
-          ) : null}
-
-          <ThemedView style={styles.operationalCard}>
-            <ThemedText type="subtitle">📊 إحصائيات المنحل (الجميع)</ThemedText>
-            <ThemedText>• إجمالي الخلايا: {stats.hiveCount}</ThemedText>
-            <ThemedText>• سجلات الفحص: {stats.inspectionCount}</ThemedText>
+        )}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={styles.connectorCard}
+            onPress={() => router.push(`/connectors/${item.id}`)}
+          >
+            <View style={styles.connectorRow}>
+              <View style={styles.connectorInfo}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={[styles.connectorDot, { backgroundColor: getStatusColor(item.status, item.isActive) }]} />
+                  <ThemedText type="defaultSemiBold">{item.name}</ThemedText>
+                </View>
+                <ThemedText style={styles.connectorMeta}>
+                  {item.platformType} • {item.protocol}
+                </ThemedText>
+              </View>
+              <TouchableOpacity
+                style={styles.testBtn}
+                onPress={() => handleQuickTest(item.id)}
+              >
+                <IconSymbol name="arrow.triangle.2.circlepath" size={18} color="#2196F3" />
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        )}
+        ListFooterComponent={() => (
+          <TouchableOpacity
+            style={styles.addBtn}
+            onPress={() => router.push('/connectors/add')}
+          >
+            <IconSymbol name="plus" size={20} color="#E6A23C" />
+            <ThemedText style={styles.addText}>إضافة اتصال جديد</ThemedText>
+          </TouchableOpacity>
+        )}
+        ListEmptyComponent={() => (
+          <ThemedView style={styles.emptyContainer}>
+            <IconSymbol name="antenna.radiowaves.left.and.right" size={48} color="#ccc" />
+            <ThemedText style={styles.emptyText}>لا توجد اتصالات بعد</ThemedText>
+            <ThemedText style={styles.emptySubtext}>أضف اتصالاً جديداً للبدء</ThemedText>
           </ThemedView>
-
-          <View style={styles.actionGrid}>
-            <TouchableOpacity style={styles.actionButton} onPress={() => router.push(`/apiary/${selectedApiaryId}/hives`)}>
-              <IconSymbol name="square.grid.2x2" size={24} color="#333" />
-              <ThemedText>الخلايا</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <IconSymbol name="doc.text.magnifyingglass" size={24} color="#333" />
-              <ThemedText>فحص</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <IconSymbol name="drop.fill" size={24} color="#333" />
-              <ThemedText>تغذية</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
-              <IconSymbol name="cross.case.fill" size={24} color="#333" />
-              <ThemedText>علاج</ThemedText>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      )}
-
-      {!selectedApiaryId && (
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => router.push('/apiary/add')}
-        >
-          <IconSymbol name="plus" size={30} color="#fff" />
-        </TouchableOpacity>
-      )}
+        )}
+      />
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { flex: 1 },
+  header: { padding: 16, gap: 12 },
+  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  statsRow: { flexDirection: 'row', gap: 8 },
+  statCard: { flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', gap: 2 },
+  statNumber: { fontSize: 20, fontWeight: 'bold' },
+  statLabel: { fontSize: 11, opacity: 0.7 },
+  gatewayDot: { width: 8, height: 8, borderRadius: 4 },
+  manageBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    padding: 10, gap: 6, borderRadius: 10, borderWidth: 1, borderColor: '#E6A23C',
   },
-  titleContainer: {
-    padding: 16,
-    gap: 8,
+  manageText: { color: '#E6A23C', fontSize: 13, fontWeight: '600' },
+  connectorCard: {
+    marginHorizontal: 16, marginBottom: 8, padding: 14,
+    backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 10,
+    borderWidth: 1, borderColor: '#eee',
   },
-  emptyContainer: {
-    padding: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
+  connectorRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  connectorInfo: { gap: 4, flex: 1 },
+  connectorDot: { width: 8, height: 8, borderRadius: 4 },
+  connectorMeta: { fontSize: 12, opacity: 0.5, marginLeft: 16 },
+  testBtn: { padding: 8 },
+  addBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    margin: 16, padding: 14, gap: 6, borderRadius: 10,
+    borderWidth: 1, borderStyle: 'dashed', borderColor: '#E6A23C',
   },
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    left: 24, // RTL layout
-    backgroundColor: '#E6A23C', // Honey color
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
-  dashboardContent: {
-    padding: 16,
-  },
-  dashboardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  financialCard: {
-    backgroundColor: '#2ecc71',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  operationalCard: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#eee',
-  },
-  actionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    justifyContent: 'space-between',
-  },
-  actionButton: {
-    width: '48%',
-    backgroundColor: '#f5f5f5',
-    padding: 20,
-    borderRadius: 12,
-    alignItems: 'center',
-    gap: 8,
-  }
+  addText: { color: '#E6A23C', fontSize: 14, fontWeight: '600' },
+  emptyContainer: { padding: 48, alignItems: 'center', gap: 12 },
+  emptyText: { fontSize: 16, opacity: 0.7 },
+  emptySubtext: { fontSize: 13, opacity: 0.5 },
 });

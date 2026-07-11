@@ -2,6 +2,7 @@
 
 # dependencies
 node_modules/
+gateway/node_modules/
 
 # Expo
 .expo/
@@ -29,6 +30,10 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# IDE
+.idea/
+.vscode/
+
 # macOS
 .DS_Store
 *.pem
@@ -36,9 +41,23 @@ yarn-error.*
 # local env files
 .env
 .env*.local
+**/.env
+
+# database files
+gateway/data/
+
+# service logs and PID files
+gateway.log
+gateway-error.log
+.gateway.pid
+.expo.pid
 
 # typescript
 *.tsbuildinfo
+
+# temp scripts
+run-schema.js
+test-db.js
 
 app-example
 

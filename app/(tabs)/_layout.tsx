@@ -4,44 +4,38 @@ import React from 'react';
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemeMode } from '@/lib/context/theme-context';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const { resolvedTheme } = useThemeMode();
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: Colors[resolvedTheme].tint,
         headerShown: false,
         tabBarButton: HapticTab,
+        tabBarStyle: {
+          borderTopWidth: 0,
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+        },
       }}>
       <Tabs.Screen
         name="index"
         options={{
           title: 'الرئيسية',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="shop"
+        name="settings"
         options={{
-          title: 'السوق',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="cart.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'استكشف',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="supabase-test"
-        options={{
-          title: 'Supabase',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="cloud.fill" color={color} />,
+          title: 'الإعدادات',
+          tabBarIcon: ({ color }) => <IconSymbol size={24} name="gearshape.fill" color={color} />,
         }}
       />
     </Tabs>

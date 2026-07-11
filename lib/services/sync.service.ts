@@ -1,6 +1,6 @@
 import * as Network from 'expo-network';
 import { getDB } from '../db/init';
-import { Platform } from 'react-native';
+import { api } from '../apiClient';
 
 export type SyncOperation = 'INSERT' | 'UPDATE' | 'DELETE';
 
@@ -44,7 +44,7 @@ export class SyncService {
     }
 
     /**
-     * Main sync function: Pushes local changes and pulls emote updates
+     * Main sync function: Pushes local changes and pulls remote updates
      */
     static async sync() {
         const online = await this.isOnline();
@@ -55,7 +55,7 @@ export class SyncService {
 
         console.log('[Sync] Starting synchronization...');
         await this.pushChanges();
-        // await this.pullChanges();
+        await this.pullChanges();
     }
 
     /**
@@ -87,7 +87,6 @@ export class SyncService {
             }));
 
             // Send to central API
-            const { api } = require('../apiClient');
             const response = await api.post('/sync/push', { events });
 
             if (response.ok) {
@@ -109,6 +108,92 @@ export class SyncService {
 
         } catch (error) {
             console.error('[Sync] Error pushing changes:', error);
+        }
+    }
+
+    private static readonly ALLOWED_TABLES = new Set(['connectors', 'platforms', 'local_settings']);
+
+    private static async pullChanges(): Promise<number> {
+        const db = getDB();
+        if (!db) return 0;
+
+        try {
+            const lastPullRow = db.getFirstSync("SELECT value FROM local_settings WHERE key = 'last_pull_at'") as any;
+            const lastPull = lastPullRow?.value || null;
+
+            let url = '/sync/pull';
+            if (lastPull) {
+                url += `?since=${encodeURIComponent(lastPull)}`;
+            }
+
+            const response = await api.get(url);
+            if (!response.ok) {
+                console.error('[Sync] Pull failed with status:', response.status);
+                return 0;
+            }
+
+            const changes = await response.json();
+            if (!Array.isArray(changes) || changes.length === 0) {
+                console.log('[Sync] No changes to pull.');
+                return 0;
+            }
+
+            console.log(`[Sync] Pulling ${changes.length} change(s) from server.`);
+            const appliedIds: string[] = [];
+
+            for (const change of changes) {
+                try {
+                    const { id, table_name, row_id, operation, data } = change;
+
+                    if (!SyncService.ALLOWED_TABLES.has(table_name)) {
+                        console.warn(`[Sync] Skipping disallowed table: ${table_name}`);
+                        continue;
+                    }
+
+                    const payload = data ? JSON.parse(data) : null;
+
+                    switch (operation) {
+                        case 'INSERT':
+                        case 'UPDATE':
+                            if (payload && typeof payload === 'object') {
+                                const keys = Object.keys(payload);
+                                const placeholders = keys.map(() => '?').join(', ');
+                                const values = keys.map(k => payload[k]);
+                                db.runSync(
+                                    `INSERT OR REPLACE INTO ${table_name} (${keys.join(', ')}) VALUES (${placeholders})`,
+                                    values
+                                );
+                            }
+                            break;
+                        case 'DELETE':
+                            db.runSync(`DELETE FROM ${table_name} WHERE id = ?`, [row_id]);
+                            break;
+                        default:
+                            console.warn(`[Sync] Unknown operation: ${operation}`);
+                            continue;
+                    }
+
+                    appliedIds.push(id);
+                } catch (err) {
+                    console.error(`[Sync] Error applying pull change ${change.id}:`, err);
+                }
+            }
+
+            if (appliedIds.length > 0) {
+                const confirmRes = await api.post('/sync/pull/confirm', { ids: appliedIds });
+                if (confirmRes.ok) {
+                    console.log(`[Sync] Confirmed ${appliedIds.length} pull(s) with server.`);
+                }
+            }
+
+            const now = new Date().toISOString();
+            db.runSync("INSERT OR REPLACE INTO local_settings (key, value) VALUES ('last_pull_at', ?)", [now]);
+
+            console.log(`[Sync] Pull cycle completed: ${appliedIds.length} changes applied.`);
+            return appliedIds.length;
+        } catch (error) {
+            console.error('[Sync] Error pulling changes:', error);
+            return 0;
         }
     }
 }

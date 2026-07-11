@@ -52,7 +52,7 @@ export default function RegisterScreen() {
                         style={styles.logo}
                     />
                     <ThemedText type="title" style={styles.title}>إنشاء حساب جديد</ThemedText>
-                    <ThemedText style={styles.subtitle}>انضم إلى مملكة النحل</ThemedText>
+                    <ThemedText style={styles.subtitle}>انضم إلى الهدهد موبايل</ThemedText>
                 </ThemedView>
 
                 <ThemedView style={styles.form}>

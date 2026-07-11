@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "AlHudhud Mobile",
-    "slug": "alhudhud-mobile",
+    "name": "AlHudhud Connect",
+    "slug": "alhudhud-connect",
     "version": "4.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -20,7 +20,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.ammarhmlh5.mobile"
+      "package": "com.ammarhmlh5.alhudhudconnect"
     },
     "web": {
       "output": "static",
@@ -41,7 +41,8 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,
