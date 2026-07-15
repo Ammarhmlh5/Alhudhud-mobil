@@ -1,12 +1,13 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { execute, executeBatch, queryAll } from '../db';
-import { requireAuth, asyncHandler } from '../middleware/auth';
+import { requireAuth, requireDeviceKey, asyncHandler } from '../middleware/auth';
 import { broadcastToUser } from '../services/ws.service';
 
 const router = Router();
 
 router.use(requireAuth);
+router.use(requireDeviceKey);
 
 router.post('/push', asyncHandler(async (req: Request, res: Response) => {
   const { events } = req.body;

@@ -106,11 +106,8 @@ export default function SettingsScreen() {
           try {
             const result = await requestApiKey();
             if (result.apiKey) {
-              Alert.alert(
-                'مفتاح API',
-                `مفتاحك:\n\n${result.apiKey}\n\n${result.message || ''}`,
-                [{ text: 'نسخ', onPress: () => Clipboard.setStringAsync(result.apiKey) }, { text: 'موافق' }]
-              );
+              setCurrentApiKey(result.apiKey);
+              setShowApiKeyModal(true);
             } else {
               Alert.alert('تم الإرسال', result.message || 'تم إرسال المفتاح إلى بريدك الإلكتروني');
             }
@@ -301,6 +298,14 @@ export default function SettingsScreen() {
           value="يُرسل للبريد"
           onPress={handleRequestApiKey}
         />
+        {currentApiKey ? (
+          <SettingRow
+            icon="eye.fill"
+            label="عرض مفتاح API"
+            value={`${currentApiKey.slice(0, 8)}...`}
+            onPress={() => setShowApiKeyModal(true)}
+          />
+        ) : null}
       </Section>
 
       {user?.role === 'admin' && (

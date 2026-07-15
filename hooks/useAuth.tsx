@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { AuthService } from '../lib/services/auth.service';
 import { api } from '../lib/apiClient';
-import { getStoredApiKey } from '../lib/utils/device-info';
 import { gatewayService } from '../lib/services/gateway.service';
 
 interface AuthContextValue {
@@ -37,7 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const profile = await AuthService.getProfile();
       setUser(profile);
-      const key = await getStoredApiKey();
+      const key = await api.getApiKey();
       setApiKey(key);
     } catch (error) {
       console.error('Auth check failed:', error);
@@ -132,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const requestApiKey = useCallback(async () => {
     const result = await AuthService.requestApiKey();
+    if (result.apiKey) setApiKey(result.apiKey);
     return result;
   }, []);
 

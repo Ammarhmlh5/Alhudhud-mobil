@@ -74,15 +74,3 @@ export async function collectDeviceInfo(): Promise<DeviceInfo> {
     appVersion: Application.nativeApplicationVersion || '1.0.0',
   };
 }
-
-export async function getStoredApiKey(): Promise<string | null> {
-  return SecureStore.getItemAsync('api_key');
-}
-
-export async function storeApiKey(apiKey: string): Promise<void> {
-  await SecureStore.setItemAsync('api_key', apiKey);
-}
-
-export async function clearApiKey(): Promise<void> {
-  await SecureStore.deleteItemAsync('api_key');
-}

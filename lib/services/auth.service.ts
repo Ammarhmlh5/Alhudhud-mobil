@@ -89,7 +89,11 @@ export class AuthService {
   }
 
   static async requestApiKey(): Promise<{ apiKey: string; message: string }> {
-    return api.post<{ apiKey: string; message: string }>('/auth/request-api-key', {});
+    const result = await api.post<{ apiKey: string; message: string }>('/auth/request-api-key', {});
+    if (result.apiKey) {
+      await api.setApiKey(result.apiKey);
+    }
+    return result;
   }
 
   static async getApiKey(): Promise<string | null> {

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { queryOne } from '../db';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -68,4 +69,23 @@ export function asyncHandler(fn: (req: Request, res: Response, next: NextFunctio
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
+}
+
+export function requireDeviceKey(req: Request, res: Response, next: NextFunction): void {
+  const deviceKey = req.headers['x-device-key'] as string | undefined;
+  if (!deviceKey || !req.user) {
+    next();
+    return;
+  }
+
+  queryOne('SELECT api_key FROM devices WHERE user_id = ? AND api_key = ? AND is_active = 1', [req.user.id, deviceKey])
+    .then((device: { api_key: string } | null) => {
+      if (!device) {
+        console.warn(`[Auth] X-Device-Key mismatch for user ${req.user!.id}`);
+      }
+      next();
+    })
+    .catch(() => {
+      next();
+    });
 }

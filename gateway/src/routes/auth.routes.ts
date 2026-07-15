@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
 import { authService } from '../services/auth.service';
 import { requireAuth, asyncHandler } from '../middleware/auth';
 import { queryOne, execute } from '../db';
@@ -23,7 +24,7 @@ const registerSchema = z.object({
     osName: z.string().optional(),
     osVersion: z.string().optional(),
     appVersion: z.string().optional(),
-  }).optional(),
+  }).nullable().optional(),
 });
 
 const loginSchema = z.object({
@@ -37,7 +38,7 @@ const loginSchema = z.object({
     osName: z.string().optional(),
     osVersion: z.string().optional(),
     appVersion: z.string().optional(),
-  }).optional(),
+  }).nullable().optional(),
 });
 
 const googleSchema = z.object({
@@ -50,7 +51,7 @@ const googleSchema = z.object({
     osName: z.string().optional(),
     osVersion: z.string().optional(),
     appVersion: z.string().optional(),
-  }).optional(),
+  }).nullable().optional(),
 });
 
 // ─── Routes ─────────────────────────────────────────────────
@@ -64,12 +65,22 @@ router.post('/register', asyncHandler(async (req: Request, res: Response) => {
   const { email, password, name, deviceInfo } = parsed.data;
   const user = await authService.register(email, password, name);
 
+  const token = jwt.sign(
+    { id: user.id, email: user.email, role: 'user' },
+    process.env.JWT_SECRET!,
+    { expiresIn: '1h' }
+  );
+
   let device = null;
   if (deviceInfo) {
     device = await authService.registerDevice(user.id, deviceInfo);
   }
 
-  res.status(201).json({ ...user, apiKey: device?.apiKey || null });
+  res.status(201).json({
+    token,
+    user: { id: user.id, email: user.email, name: user.name, role: 'user' },
+    apiKey: device?.apiKey || null,
+  });
 }));
 
 router.post('/login', asyncHandler(async (req: Request, res: Response) => {
@@ -160,17 +171,18 @@ router.post('/request-api-key', requireAuth, asyncHandler(async (req: Request, r
     apiKey = device.apiKey;
   }
 
+  let message = 'تم إنشاء المفتاح (البريد غير مكوّن، المفتاح معروض هنا)';
   try {
     const { sendApiKeyEmail } = await import('../services/email.service');
     const sent = await sendApiKeyEmail(req.user!.email, apiKey);
     if (sent) {
-      return res.json({ success: true, message: 'تم إرسال المفتاح إلى بريدك الإلكتروني' });
+      message = 'تم إرسال المفتاح إلى بريدك الإلكتروني';
     }
   } catch (error) {
     console.error('Failed to send API key email:', error);
   }
 
-  res.json({ success: true, apiKey, message: 'تم إنشاء المفتاح (البريد غير مكوّن، المفتاح معروض هنا)' });
+  res.json({ success: true, apiKey, message });
 }));
 
 export default router;

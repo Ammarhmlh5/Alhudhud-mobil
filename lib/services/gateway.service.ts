@@ -33,6 +33,14 @@ class GatewayService {
     }
   }
 
+  async getApiKey(): Promise<string | null> {
+    try {
+      return await SecureStore.getItemAsync('api_key');
+    } catch {
+      return null;
+    }
+  }
+
   async connect() {
     const token = await this.getToken();
     if (!token || !WS_URL) return;
@@ -179,15 +187,17 @@ class GatewayService {
   }
 
   async sendToConnector(connectorId: string, data: any) {
-    const token = await this.getToken();
+    const [token, apiKey] = await Promise.all([this.getToken(), this.getApiKey()]);
     if (!token) throw new Error('Not authenticated');
 
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 15000);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+      if (apiKey) headers['X-Device-Key'] = apiKey;
       const response = await fetch(`${GATEWAY_URL}/api/sync/push`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers,
         body: JSON.stringify({ events: [{ connectorId, table: 'direct', operation: 'SEND', data }] }),
         signal: controller.signal,
       });
@@ -213,9 +223,10 @@ class GatewayService {
   }
 
   async fetch(path: string, options: RequestInit = {}): Promise<Response> {
-    const token = await this.getToken();
+    const [token, apiKey] = await Promise.all([this.getToken(), this.getApiKey()]);
     const headers: Record<string, string> = { ...((options.headers as Record<string, string>) || {}) };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (apiKey) headers['X-Device-Key'] = apiKey;
 
     const Network = await import('expo-network');
     const netState = await Network.getNetworkStateAsync();
