@@ -6,7 +6,7 @@ const config = getDefaultConfig(__dirname);
 const localNodeModules = path.resolve(__dirname, 'node_modules');
 
 // Force React and React-DOM to resolve from the local node_modules
-// This prevents the root workspace React 18 from conflicting with local React 19
+// This prevents workspace React version conflicts
 config.resolver.extraNodeModules = {
   'react': path.resolve(localNodeModules, 'react'),
   'react-dom': path.resolve(localNodeModules, 'react-dom'),

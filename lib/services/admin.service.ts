@@ -45,15 +45,11 @@ export interface AdminWebhook {
 
 export const adminService = {
   async getStats(): Promise<AdminStats> {
-    const res = await api.get('/admin/stats');
-    if (!res.ok) throw new Error('فشل تحميل الإحصائيات');
-    return res.json();
+    return api.get<AdminStats>('/admin/stats');
   },
 
   async getUsers(): Promise<AdminUser[]> {
-    const res = await api.get('/admin/accounts');
-    if (!res.ok) throw new Error('فشل تحميل الحسابات');
-    return res.json();
+    return api.get<AdminUser[]>('/admin/accounts');
   },
 
   async toggleUserStatus(userId: string, isActive: boolean): Promise<void> {
@@ -65,14 +61,10 @@ export const adminService = {
   },
 
   async getLogs(limit = 50): Promise<AdminLog[]> {
-    const res = await api.get(`/admin/logs?limit=${limit}`);
-    if (!res.ok) throw new Error('فشل تحميل السجلات');
-    return res.json();
+    return api.get<AdminLog[]>(`/admin/logs?limit=${limit}`);
   },
 
   async getWebhooks(limit = 50): Promise<AdminWebhook[]> {
-    const res = await api.get(`/admin/webhooks?limit=${limit}`);
-    if (!res.ok) throw new Error('فشل تحميل أحداث Webhook');
-    return res.json();
+    return api.get<AdminWebhook[]>(`/admin/webhooks?limit=${limit}`);
   },
 };

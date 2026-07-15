@@ -1,6 +1,8 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { AuthService } from '../lib/services/auth.service';
+import { api } from '../lib/apiClient';
 import { getStoredApiKey } from '../lib/utils/device-info';
+import { gatewayService } from '../lib/services/gateway.service';
 
 interface AuthContextValue {
   user: any;
@@ -37,7 +39,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(profile);
       const key = await getStoredApiKey();
       setApiKey(key);
-    } catch {
+    } catch (error) {
+      console.error('Auth check failed:', error);
       setUser(null);
       setApiKey(null);
     } finally {
@@ -46,10 +49,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    api.onUnauthorized(() => {
+      setUser(null);
+      setApiKey(null);
+    });
     checkAuth();
   }, [checkAuth]);
 
-  const login = async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     const data = await AuthService.login(email, password);
     if (data.apiKey) setApiKey(data.apiKey);
     if (data.user) {
@@ -58,9 +65,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await checkAuth();
     }
     return data;
-  };
+  }, [checkAuth]);
 
-  const googleLogin = async (idToken: string) => {
+  const googleLogin = useCallback(async (idToken: string) => {
     const data = await AuthService.googleLogin(idToken);
     if (data.apiKey) setApiKey(data.apiKey);
     if (data.user) {
@@ -69,34 +76,79 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await checkAuth();
     }
     return data;
-  };
+  }, [checkAuth]);
 
-  const register = async (name: string, email: string, password: string) => {
+  const register = useCallback(async (name: string, email: string, password: string) => {
     const data = await AuthService.register({ name, email, password });
     if (data.apiKey) setApiKey(data.apiKey);
-    const loginData = await AuthService.login(email, password);
-    if (loginData.apiKey) setApiKey(loginData.apiKey);
-    if (loginData.user) {
-      setUser(loginData.user);
-    } else {
-      await checkAuth();
-    }
-    return { ...loginData, apiKey: data.apiKey || loginData.apiKey };
-  };
 
-  const logout = async () => {
+    // If register returned a token, use it directly (no separate login needed)
+    if (data.token) {
+      await api.setToken(data.token);
+      if (data.user) {
+        setUser(data.user);
+      } else {
+        await checkAuth();
+      }
+      return data;
+    }
+
+    // Fallback: try separate login
+    try {
+      const loginData = await AuthService.login(email, password);
+      if (loginData.apiKey) setApiKey(loginData.apiKey);
+      if (loginData.user) {
+        setUser(loginData.user);
+      } else {
+        await checkAuth();
+      }
+      return { ...loginData, apiKey: data.apiKey || loginData.apiKey };
+    } catch (error) {
+      console.error('Auto-login after registration failed:', error);
+      await checkAuth();
+      return data;
+    }
+  }, [checkAuth]);
+
+  const logout = useCallback(async () => {
+    gatewayService.disconnect();
+    gatewayService.removeAllHandlers();
+    try {
+      const { notificationService } = await import('@/lib/services/notification.service');
+      notificationService.destroy();
+    } catch {}
+    try {
+      const { supabaseIntegrationService } = await import('@/lib/services/supabase-integration.service');
+      await supabaseIntegrationService.destroy();
+    } catch {}
+    try {
+      const { marsalSupabase } = await import('@/lib/supabase/client');
+      await marsalSupabase.auth.signOut();
+    } catch {}
     await AuthService.logout();
     setUser(null);
     setApiKey(null);
-  };
+  }, []);
 
-  const requestApiKey = async () => {
+  const requestApiKey = useCallback(async () => {
     const result = await AuthService.requestApiKey();
     return result;
-  };
+  }, []);
+
+  const value = useMemo(() => ({
+    user,
+    apiKey,
+    loading,
+    login,
+    googleLogin,
+    logout,
+    register,
+    checkAuth,
+    requestApiKey,
+  }), [user, apiKey, loading, login, googleLogin, logout, register, checkAuth, requestApiKey]);
 
   return (
-    <AuthContext.Provider value={{ user, apiKey, loading, login, googleLogin, logout, register, checkAuth, requestApiKey }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

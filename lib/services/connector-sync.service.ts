@@ -35,6 +35,9 @@ class ConnectorSyncService {
   }
 
   async pullConnectors(): Promise<number> {
+    if (this.syncing) return 0;
+    this.syncing = true;
+
     try {
       const res = await gatewayService.fetch('/connectors');
       if (!res.ok) return 0;
@@ -66,12 +69,14 @@ class ConnectorSyncService {
             sc.updated_at || new Date().toISOString(),
           ]);
           imported++;
-        } catch {}
+        } catch (error) { console.error('Failed to import connector:', error); }
       }
 
       return imported;
     } catch {
       return 0;
+    } finally {
+      this.syncing = false;
     }
   }
 

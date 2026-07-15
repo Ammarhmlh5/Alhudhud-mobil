@@ -1,6 +1,6 @@
-import { StyleSheet, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
@@ -43,27 +43,36 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const [slide, setSlide] = useState(0);
 
-  const complete = () => {
-    const db = getDB();
-    if (db) {
-      db.runSync("INSERT OR REPLACE INTO local_settings (key, value) VALUES ('onboarding_done', '1')");
+  const complete = useCallback(() => {
+    try {
+      const db = getDB();
+      if (db) {
+        db.runSync("INSERT OR REPLACE INTO local_settings (key, value) VALUES ('onboarding_done', '1')");
+      }
+    } catch (error) {
+      console.error('Failed to save onboarding status:', error);
     }
     router.replace('/(tabs)');
-  };
+  }, [router]);
 
-  const next = () => {
-    if (slide < slides.length - 1) {
-      setSlide(slide + 1);
-    } else {
-      complete();
-    }
-  };
+  const next = useCallback(() => {
+    setSlide(prev => {
+      if (prev < slides.length - 1) {
+        return prev + 1;
+      }
+      return prev;
+    });
+  }, []);
 
-  const s = slides[slide];
+  const currentIndex = useMemo(() => {
+    return Math.max(0, Math.min(slide, slides.length - 1));
+  }, [slide]);
+
+  const s = slides[currentIndex];
 
   return (
     <ThemedView style={styles.container}>
-      <TouchableOpacity style={styles.skip} onPress={complete}>
+      <TouchableOpacity style={styles.skip} onPress={complete} accessibilityLabel="تخطي" accessibilityRole="button">
         <ThemedText style={styles.skipText}>تخطي</ThemedText>
       </TouchableOpacity>
 
@@ -78,10 +87,15 @@ export default function OnboardingScreen() {
       <View style={styles.footer}>
         <View style={styles.dots}>
           {slides.map((_, i) => (
-            <View key={i} style={[styles.dot, i === slide && { backgroundColor: s.color, width: 24 }]} />
+            <View key={i} style={[styles.dot, i === currentIndex && { backgroundColor: s.color, width: 24 }]} />
           ))}
         </View>
-        <TouchableOpacity style={[styles.nextBtn, { backgroundColor: s.color }]} onPress={next}>
+        <TouchableOpacity
+          style={[styles.nextBtn, { backgroundColor: s.color }]}
+          onPress={currentIndex < slides.length - 1 ? next : complete}
+          accessibilityLabel={currentIndex < slides.length - 1 ? 'التالي' : 'ابدأ'}
+          accessibilityRole="button"
+        >
           <IconSymbol name="arrow.left" size={20} color="#fff" />
         </TouchableOpacity>
       </View>

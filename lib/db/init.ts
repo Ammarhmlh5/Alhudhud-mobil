@@ -1,11 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 
 let db: SQLite.SQLiteDatabase | null = null;
-try {
-  db = SQLite.openDatabaseSync('alhudhud_platform.db');
-} catch (error) {
-  console.error("Error opening database:", error);
-}
 
 interface Migration {
   id: string;
@@ -13,27 +8,37 @@ interface Migration {
   up: () => void;
 }
 
-const migrations: Migration[] = [];
+const migrations: Migration[] = [
+  {
+    id: '001_add_sync_queue_retry_count',
+    description: 'Add retry_count column to sync_queue',
+    up: () => {
+      if (!db) return;
+      try {
+        db.runSync('ALTER TABLE sync_queue ADD COLUMN retry_count INTEGER DEFAULT 0');
+      } catch {}
+    },
+  },
+];
 
-function runMigrations(): void {
-  if (!db) return;
-  db.execSync(`CREATE TABLE IF NOT EXISTS _migrations (
+function runMigrations(database: SQLite.SQLiteDatabase): void {
+  database.execSync(`CREATE TABLE IF NOT EXISTS _migrations (
     id TEXT PRIMARY KEY NOT NULL,
     description TEXT NOT NULL,
     applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   )`);
 
   const applied = new Set(
-    (db.getAllSync('SELECT id FROM _migrations ORDER BY id') as any[]).map(r => r.id)
+    (database.getAllSync('SELECT id FROM _migrations ORDER BY id') as any[]).map(r => r.id)
   );
 
   for (const m of migrations) {
     if (applied.has(m.id)) continue;
     try {
-      console.log(`[Migration] ${m.id} — ${m.description}`);
+      console.debug(`[Migration] ${m.id} — ${m.description}`);
       m.up();
-      db.runSync('INSERT INTO _migrations (id, description) VALUES (?, ?)', [m.id, m.description]);
-      console.log(`[Migration] ✅ ${m.id} applied.`);
+      database.runSync('INSERT INTO _migrations (id, description) VALUES (?, ?)', [m.id, m.description]);
+      console.debug(`[Migration] ✅ ${m.id} applied.`);
     } catch (err) {
       console.error(`[Migration] ❌ ${m.id} failed:`, err);
     }
@@ -41,7 +46,14 @@ function runMigrations(): void {
 }
 
 export const initDatabase = () => {
-  if (!db) return;
+  if (!db) {
+    try {
+      db = SQLite.openDatabaseSync('alhudhud_platform.db');
+    } catch (error) {
+      console.error('FATAL: Cannot open database:', error);
+      return;
+    }
+  }
 
   try {
     db.execSync(`
@@ -118,11 +130,37 @@ export const initDatabase = () => {
       CREATE INDEX IF NOT EXISTS idx_message_logs_created_at ON message_logs(created_at);
     `);
 
-    runMigrations();
+    const version = db.getFirstSync('SELECT value FROM local_settings WHERE key = "schema_version"') as any;
+    const currentVersion = version?.value ? parseInt(version.value) : 0;
 
-    console.log('Platform Database Initialized Successfully');
+    if (currentVersion < 1) {
+      // Future migrations go here:
+      // db.runSync('ALTER TABLE connectors ADD COLUMN new_column TEXT');
+      db.runSync('INSERT OR REPLACE INTO local_settings (key, value) VALUES ("schema_version", "1")');
+    }
+
+    runMigrations(db!);
+
+    cleanupMessageLogs();
+
+    console.debug('Platform Database Initialized Successfully');
   } catch (error) {
     console.error('Failed to initialize database:', error);
+  }
+};
+
+export const cleanupMessageLogs = (daysToKeep = 30) => {
+  if (!db) return;
+  try {
+    const result = db.runSync(
+      `DELETE FROM message_logs WHERE created_at < datetime('now', '-' || ? || ' days')`,
+      [daysToKeep]
+    );
+    if (result.changes > 0) {
+      console.debug(`[DB] Cleaned up ${result.changes} message logs older than ${daysToKeep} days`);
+    }
+  } catch (error) {
+    console.error('[DB] Failed to cleanup message logs:', error);
   }
 };
 

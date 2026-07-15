@@ -1,4 +1,7 @@
+import * as SecureStore from 'expo-secure-store';
 import { ConnectorConfig } from '../types';
+
+const TOKEN_CACHE_KEY = 'oauth2_token_cache_';
 
 interface TokenResponse {
   access_token: string;
@@ -18,18 +21,59 @@ interface OAuth2Token {
 
 export class OAuth2Engine {
   private tokenCache = new Map<string, OAuth2Token>();
+  private refreshPromises = new Map<string, Promise<string>>();
+  private lastCleanup = 0;
+  private static CLEANUP_INTERVAL = 60000;
+
+  private cleanupExpiredTokens(): void {
+    const now = Date.now();
+    if (now - this.lastCleanup < OAuth2Engine.CLEANUP_INTERVAL) return;
+    this.lastCleanup = now;
+    for (const [key, token] of this.tokenCache) {
+      if (token.expiresAt && token.expiresAt < now) {
+        this.tokenCache.delete(key);
+      }
+    }
+  }
 
   async getAccessToken(config: ConnectorConfig): Promise<string> {
-    const cached = this.tokenCache.get(config.id);
+    this.cleanupExpiredTokens();
+    let cached = this.tokenCache.get(config.id);
+
+    if (!cached) {
+      const stored = await SecureStore.getItemAsync(TOKEN_CACHE_KEY + config.id);
+      if (stored) {
+        try {
+          const parsed: OAuth2Token = JSON.parse(stored);
+          cached = parsed;
+          this.tokenCache.set(config.id, parsed);
+        } catch {
+          await SecureStore.deleteItemAsync(TOKEN_CACHE_KEY + config.id);
+        }
+      }
+    }
+
     if (cached && cached.expiresAt && cached.expiresAt > Date.now() + 60000) {
       return cached.accessToken;
     }
 
-    if (cached?.refreshToken) {
-      return this.refreshToken(config, cached.refreshToken);
+    if (this.refreshPromises.has(config.id)) {
+      return this.refreshPromises.get(config.id)!;
     }
 
-    return this.authorize(config);
+    let promise: Promise<string>;
+    if (cached?.refreshToken) {
+      promise = this.refreshToken(config, cached.refreshToken).finally(() => {
+        this.refreshPromises.delete(config.id);
+      });
+    } else {
+      promise = this.authorize(config).finally(() => {
+        this.refreshPromises.delete(config.id);
+      });
+    }
+
+    this.refreshPromises.set(config.id, promise);
+    return promise;
   }
 
   private async authorize(config: ConnectorConfig): Promise<string> {
@@ -53,7 +97,7 @@ export class OAuth2Engine {
     }
 
     const data: TokenResponse = await response.json();
-    return this.cacheToken(config.id, data);
+    return await this.cacheToken(config.id, data);
   }
 
   private async refreshToken(config: ConnectorConfig, refreshToken: string): Promise<string> {
@@ -75,13 +119,13 @@ export class OAuth2Engine {
       if (!response.ok) throw new Error('Refresh failed');
 
       const data: TokenResponse = await response.json();
-      return this.cacheToken(config.id, data);
+      return await this.cacheToken(config.id, data);
     } catch {
-      return this.authorize(config);
+      return await this.authorize(config);
     }
   }
 
-  private cacheToken(id: string, data: TokenResponse): string {
+  private async cacheToken(id: string, data: TokenResponse): Promise<string> {
     const token: OAuth2Token = {
       accessToken: data.access_token,
       tokenType: data.token_type || 'Bearer',
@@ -90,6 +134,9 @@ export class OAuth2Engine {
       scope: data.scope || null,
     };
     this.tokenCache.set(id, token);
+    try {
+      await SecureStore.setItemAsync(TOKEN_CACHE_KEY + id, JSON.stringify(token));
+    } catch {}
     return token.accessToken;
   }
 
@@ -99,8 +146,9 @@ export class OAuth2Engine {
     return { 'Authorization': `${cached.tokenType} ${cached.accessToken}` };
   }
 
-  clearCache(configId: string) {
+  async clearCache(configId: string) {
     this.tokenCache.delete(configId);
+    try { await SecureStore.deleteItemAsync(TOKEN_CACHE_KEY + configId); } catch {}
   }
 }
 

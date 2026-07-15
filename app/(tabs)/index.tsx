@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useGateway } from '@/hooks/useGateway';
 import * as Haptics from 'expo-haptics';
 import { ConnectorConfig, ConnectorStats } from '@/lib/connectors/types';
+import { supabaseIntegrationService } from '@/lib/services/supabase-integration.service';
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -44,7 +45,32 @@ export default function HomeScreen() {
     }
   }, [user, gatewayConnected]);
 
-  const handleSyncNow = async () => {
+  useEffect(() => {
+    if (!user) return;
+
+    const registerSupabaseDevice = async () => {
+      try {
+        await supabaseIntegrationService.registerDevice();
+      } catch {}
+    };
+
+    registerSupabaseDevice();
+  }, [user]);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [allConnectors, currentStats] = await Promise.all([
+        connectorManager.getAll(),
+        connectorManager.getStats(),
+      ]);
+      setConnectors(allConnectors);
+      setStats(currentStats);
+    } catch (e) {
+      console.error('[HomeScreen] Error loading data:', e);
+    }
+  }, []);
+
+  const handleSyncNow = useCallback(async () => {
     setSyncing(true);
     try {
       const result = await connectorSyncService.fullSync();
@@ -56,16 +82,7 @@ export default function HomeScreen() {
       setSyncing(false);
       loadData();
     }
-  };
-
-  const loadData = useCallback(async () => {
-    const [allConnectors, currentStats] = await Promise.all([
-      connectorManager.getAll(),
-      connectorManager.getStats(),
-    ]);
-    setConnectors(allConnectors);
-    setStats(currentStats);
-  }, []);
+  }, [loadData]);
 
   useEffect(() => {
     if (user) loadData();
@@ -171,7 +188,7 @@ export default function HomeScreen() {
                   Alert.alert('تسجيل الخروج', 'هل أنت متأكد؟', [
                     { text: 'إلغاء', style: 'cancel' },
                     { text: 'خروج', style: 'destructive', onPress: () => {
-                      logout().then(() => router.replace('/auth/login'));
+                      logout().then(() => router.replace('/auth/login')).catch(() => router.replace('/auth/login'));
                     }},
                   ]);
                 }}>

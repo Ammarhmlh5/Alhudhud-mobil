@@ -46,6 +46,9 @@ yarn-error.*
 # database files
 gateway/data/
 
+# gateway web build
+gateway/web/build/
+
 # service logs and PID files
 gateway.log
 gateway-error.log

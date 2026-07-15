@@ -1,5 +1,6 @@
 import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { Component, ErrorInfo, ReactNode } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from './ThemedText';
 import { IconSymbol } from './ui/IconSymbol';
 
@@ -23,25 +24,30 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('[ErrorBoundary]', error, errorInfo);
+    console.error('[ErrorBoundary] Error:', error.message);
+    console.error('[ErrorBoundary] Stack:', error.stack);
+    console.error('[ErrorBoundary] Component Stack:', errorInfo.componentStack);
   }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+  };
 
   render() {
     if (this.state.hasError) {
       return (
-        <View style={styles.container}>
-          <IconSymbol name="exclamationmark.triangle.fill" size={48} color="#F44336" />
-          <ThemedText style={styles.title}>حدث خطأ غير متوقع</ThemedText>
-          <ThemedText style={styles.message}>
-            {this.state.error?.message || 'تعذر تحميل هذه الشاشة'}
-          </ThemedText>
-          <TouchableOpacity
-            style={styles.btn}
-            onPress={() => this.setState({ hasError: false, error: null })}
-          >
-            <ThemedText style={styles.btnText}>إعادة المحاولة</ThemedText>
-          </TouchableOpacity>
-        </View>
+        <SafeAreaView style={styles.container}>
+          <View style={styles.content}>
+            <IconSymbol name="exclamationmark.triangle.fill" size={48} color="#F44336" />
+            <ThemedText style={styles.title}>حدث خطأ غير متوقع</ThemedText>
+            <ThemedText style={styles.message}>
+              {this.state.error?.message || 'تعذر تحميل هذه الشاشة'}
+            </ThemedText>
+            <TouchableOpacity style={styles.btn} onPress={this.handleReset}>
+              <ThemedText style={styles.btnText}>إعادة المحاولة</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
       );
     }
     return this.props.children;
@@ -50,6 +56,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  content: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
     padding: 32, gap: 12,
   },

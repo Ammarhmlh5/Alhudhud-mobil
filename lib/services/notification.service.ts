@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Platform, Linking } from 'react-native';
 import { gatewayService } from './gateway.service';
 
 let Notifications: typeof import('expo-notifications') | null = null;
@@ -16,10 +16,10 @@ function getNotifications() {
 
 class NotificationService {
   private initialized = false;
+  private cleanupFns: Array<() => void> = [];
 
   async init() {
     if (this.initialized) return;
-    this.initialized = true;
 
     const N = getNotifications();
     if (!N) return;
@@ -34,7 +34,9 @@ class NotificationService {
           shouldShowList: true,
         }),
       });
-    } catch {}
+    } catch (error) {
+      console.debug('[Notification] Handler setup failed:', error);
+    }
 
     try {
       const { status } = await N.requestPermissionsAsync();
@@ -52,7 +54,8 @@ class NotificationService {
         });
       }
 
-      gatewayService.on('WEBHOOK_EVENT', async (msg: any) => {
+      // Register event listeners with cleanup tracking
+      const unsub1 = gatewayService.on('WEBHOOK_EVENT', async (msg: any) => {
         let body = msg.connectorId?.slice(0, 8) || '';
         if (msg.connectorName) body = msg.connectorName;
         await this.scheduleLocalNotification({
@@ -63,7 +66,7 @@ class NotificationService {
         });
       });
 
-      gatewayService.on('SCHEDULED_SYNC', async (msg: any) => {
+      const unsub2 = gatewayService.on('SCHEDULED_SYNC', async (msg: any) => {
         if (msg.connectorName) {
           await this.scheduleLocalNotification({
             title: 'مزامنة تلقائية',
@@ -73,7 +76,29 @@ class NotificationService {
           });
         }
       });
-    } catch {}
+
+      this.cleanupFns.push(unsub1, unsub2);
+
+      const responseListener = N.addNotificationResponseReceivedListener((response) => {
+        const data = response.notification.request.content.data;
+        if (data?.connectorId) {
+          Linking.openURL(`alhudhud://connectors/${data.connectorId}`).catch(() => {});
+        }
+      });
+      this.cleanupFns.push(() => responseListener.remove());
+
+      this.initialized = true;
+    } catch {
+      // Permission or channel setup failed
+    }
+  }
+
+  destroy() {
+    for (const fn of this.cleanupFns) {
+      try { fn(); } catch {}
+    }
+    this.cleanupFns = [];
+    this.initialized = false;
   }
 
   private async scheduleLocalNotification({
@@ -91,7 +116,9 @@ class NotificationService {
         content: { title, body, data, ...(channelId ? { channelId } : {}) },
         trigger: null,
       });
-    } catch {}
+    } catch {
+      // Notification scheduling failed
+    }
   }
 }
 

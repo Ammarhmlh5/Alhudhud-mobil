@@ -1,4 +1,4 @@
-import { StyleSheet, ScrollView, TouchableOpacity, Alert, View, RefreshControl } from 'react-native';
+import { StyleSheet, ScrollView, TouchableOpacity, Alert, View, RefreshControl, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useEffect } from 'react';
 import { ThemedText } from '@/components/ThemedText';
@@ -8,7 +8,35 @@ import { useAuth } from '@/hooks/useAuth';
 import { useThemeMode } from '@/lib/context/theme-context';
 import { connectorManager } from '@/lib/connectors/manager';
 import { ConnectorConfig } from '@/lib/connectors/types';
+import * as Clipboard from 'expo-clipboard';
 import { ApiKeyModal } from '@/components/ApiKeyModal';
+import { pairingService } from '@/lib/services/pairing.service';
+import { api } from '@/lib/apiClient';
+import * as Application from 'expo-application';
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <ThemedView style={styles.section}>
+      <ThemedText style={styles.sectionTitle}>{title}</ThemedText>
+      {children}
+    </ThemedView>
+  );
+}
+
+function SettingRow({ icon, label, value, onPress, color }: {
+  icon: string; label: string; value?: string; onPress?: () => void; color?: string;
+}) {
+  return (
+    <TouchableOpacity style={styles.settingRow} onPress={onPress} disabled={!onPress} accessibilityLabel={label} accessibilityRole="button">
+      <IconSymbol name={icon as any} size={20} color={color || '#666'} />
+      <ThemedText style={styles.settingLabel}>{label}</ThemedText>
+      <View style={styles.settingRight}>
+        {value && <ThemedText style={styles.settingValue}>{value}</ThemedText>}
+        {onPress && <IconSymbol name="chevron.left" size={14} color="#ccc" />}
+      </View>
+    </TouchableOpacity>
+  );
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -17,16 +45,37 @@ export default function SettingsScreen() {
   const [connectors, setConnectors] = useState<ConnectorConfig[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [currentApiKey, setCurrentApiKey] = useState('');
+  const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
+  const [isPaired, setIsPaired] = useState(false);
+  const [pairedInfo, setPairedInfo] = useState<{ userName: string; gatewayUrl: string } | null>(null);
 
   const loadConnectors = useCallback(async () => {
     const result = await connectorManager.getAll();
     setConnectors(result);
+    const paired = await pairingService.isPaired();
+    setIsPaired(paired);
+    if (paired) {
+      const info = await pairingService.getPairedDeviceInfo();
+      const gw = await pairingService.getPairedGateway();
+      setPairedInfo(info ? { userName: info.userName, gatewayUrl: gw || '' } : null);
+    } else {
+      setPairedInfo(null);
+    }
+  }, []);
+
+  const loadApiKey = useCallback(async () => {
+    try {
+      const key = await api.getApiKey();
+      setCurrentApiKey(key);
+    } catch (error) {
+      console.error('Failed to load API key:', error);
+    }
   }, []);
 
   useEffect(() => {
     loadConnectors();
-  }, [loadConnectors]);
+    loadApiKey();
+  }, [loadConnectors, loadApiKey]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -56,7 +105,15 @@ export default function SettingsScreen() {
         onPress: async () => {
           try {
             const result = await requestApiKey();
-            Alert.alert('تم الإرسال', 'تم إرسال المفتاح إلى بريدك الإلكتروني');
+            if (result.apiKey) {
+              Alert.alert(
+                'مفتاح API',
+                `مفتاحك:\n\n${result.apiKey}\n\n${result.message || ''}`,
+                [{ text: 'نسخ', onPress: () => Clipboard.setStringAsync(result.apiKey) }, { text: 'موافق' }]
+              );
+            } else {
+              Alert.alert('تم الإرسال', result.message || 'تم إرسال المفتاح إلى بريدك الإلكتروني');
+            }
           } catch (error: any) {
             Alert.alert('خطأ', error.message || 'فشل إرسال المفتاح');
           }
@@ -75,25 +132,46 @@ export default function SettingsScreen() {
     }
   };
 
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <ThemedView style={styles.section}>
-      <ThemedText style={styles.sectionTitle}>{title}</ThemedText>
-      {children}
-    </ThemedView>
-  );
+  const handleAddConnector = () => {
+    Alert.alert('إضافة اتصال', 'اختر طريقة الإضافة', [
+      {
+        text: 'مسح QR للربط السريع',
+        onPress: () => router.push('/connectors/scan'),
+      },
+      {
+        text: 'إضافة يدوياً',
+        onPress: () => router.push('/connectors/add'),
+      },
+      {
+        text: 'إلغاء',
+        style: 'cancel',
+      },
+    ]);
+  };
 
-  const SettingRow = ({ icon, label, value, onPress, color }: {
-    icon: string; label: string; value?: string; onPress?: () => void; color?: string;
-  }) => (
-    <TouchableOpacity style={styles.settingRow} onPress={onPress} disabled={!onPress}>
-      <IconSymbol name={icon as any} size={20} color={color || '#666'} />
-      <ThemedText style={styles.settingLabel}>{label}</ThemedText>
-      <View style={styles.settingRight}>
-        {value && <ThemedText style={styles.settingValue}>{value}</ThemedText>}
-        {onPress && <IconSymbol name="chevron.left" size={14} color="#ccc" />}
-      </View>
-    </TouchableOpacity>
-  );
+  const handleUnpair = async () => {
+    const deviceInfo = await pairingService.getPairedDeviceInfo();
+    Alert.alert(
+      'إلغاء الربط',
+      `هل تريد إلغاء الربط مع الجهاز؟\n${deviceInfo?.userName ? `الحساب: ${deviceInfo.userName}` : ''}`,
+      [
+        { text: 'إلغاء', style: 'cancel' },
+        {
+          text: 'إلغاء الربط',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await pairingService.unpair();
+              setIsPaired(false);
+              Alert.alert('تم الإلغاء', 'تم إلغاء الربط بنجاح');
+            } catch {
+              Alert.alert('خطأ', 'فشل إلغاء الربط');
+            }
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <ScrollView
@@ -123,7 +201,7 @@ export default function SettingsScreen() {
       )}
 
       <Section title="الربط بالبوابات (الاتصالات)">
-        <TouchableOpacity style={styles.connectorHeader} onPress={() => router.push('/connectors/index')}>
+        <TouchableOpacity style={styles.connectorHeader} onPress={() => router.push('/connectors/index')} accessibilityLabel="إدارة الاتصالات" accessibilityRole="button">
           <View style={styles.connectorHeaderRow}>
             <IconSymbol name="antenna.radiowaves.left.and.right" size={20} color="#E6A23C" />
             <ThemedText style={styles.connectorHeaderText}>إدارة الاتصالات</ThemedText>
@@ -146,6 +224,8 @@ export default function SettingsScreen() {
                 key={item.id}
                 style={styles.connectorItem}
                 onPress={() => router.push(`/connectors/${item.id}`)}
+                accessibilityLabel={`اتصال ${item.name}`}
+                accessibilityRole="button"
               >
                 <View style={[styles.statusDot, { backgroundColor: getStatusColor(item.status, item.isActive) }]} />
                 <View style={styles.connectorItemInfo}>
@@ -158,7 +238,7 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             ))}
             {connectors.length > 5 && (
-              <TouchableOpacity onPress={() => router.push('/connectors/index')}>
+              <TouchableOpacity onPress={() => router.push('/connectors/index')} accessibilityLabel="عرض جميع الاتصالات" accessibilityRole="button">
                 <ThemedText style={styles.seeAllText}>عرض الكل ({connectors.length})</ThemedText>
               </TouchableOpacity>
             )}
@@ -167,11 +247,21 @@ export default function SettingsScreen() {
 
         <TouchableOpacity
           style={styles.addConnectorBtn}
-          onPress={() => router.push('/connectors/add')}
+          onPress={handleAddConnector}
+          accessibilityLabel="إضافة اتصال جديد"
+          accessibilityRole="button"
         >
           <IconSymbol name="plus" size={18} color="#E6A23C" />
           <ThemedText style={styles.addConnectorText}>إضافة اتصال جديد</ThemedText>
         </TouchableOpacity>
+
+        {isPaired && (
+          <TouchableOpacity style={styles.pairingBadge} onPress={handleUnpair} accessibilityLabel="إلغاء الربط" accessibilityRole="button">
+            <ThemedText style={styles.pairingBadgeText}>
+              ✓ مربوط{pairedInfo?.userName ? ` بحساب ${pairedInfo.userName}` : ''} - اضغط للإلغاء
+            </ThemedText>
+          </TouchableOpacity>
+        )}
       </Section>
 
       <Section title="المظهر">
@@ -184,6 +274,15 @@ export default function SettingsScreen() {
             const next = modes[(modes.indexOf(themeMode) + 1) % modes.length];
             setThemeMode(next);
           }}
+        />
+      </Section>
+
+      <Section title="مرسل الهدهد">
+        <SettingRow
+          icon="antenna.radiowaves.left.and.right"
+          label="ربط منصة SMS"
+          color="#E6A23C"
+          onPress={() => router.push('/platform')}
         />
       </Section>
 
@@ -216,19 +315,19 @@ export default function SettingsScreen() {
       )}
 
       <Section title="التطبيق">
-        <SettingRow icon="info.circle" label="الإصدار" value="1.0.0" />
-        <SettingRow icon="doc.text" label="الشروط والأحكام" onPress={() => {}} />
-        <SettingRow icon="lock.shield" label="سياسة الخصوصية" onPress={() => {}} />
+        <SettingRow icon="info.circle" label="الإصدار" value={Application.nativeApplicationVersion || '4.0.0'} />
+        <SettingRow icon="doc.text" label="الشروط والأحكام" onPress={() => Linking.openURL('https://alhudhud.com/terms')} />
+        <SettingRow icon="lock.shield" label="سياسة الخصوصية" onPress={() => Linking.openURL('https://alhudhud.com/privacy')} />
       </Section>
 
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} accessibilityLabel="تسجيل الخروج" accessibilityRole="button">
         <IconSymbol name="rectangle.portrait.and.arrow.right" size={20} color="#FF4D4F" />
         <ThemedText style={styles.logoutText}>تسجيل الخروج</ThemedText>
       </TouchableOpacity>
 
       <ApiKeyModal
         visible={showApiKeyModal}
-        apiKey={currentApiKey}
+        apiKey={currentApiKey || ''}
         onClose={() => setShowApiKeyModal(false)}
       />
     </ScrollView>
@@ -293,6 +392,13 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderStyle: 'dashed', borderColor: '#E6A23C',
   },
   addConnectorText: { color: '#E6A23C', fontSize: 13, fontWeight: '600' },
+  pairingBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    padding: 10, borderRadius: 8,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderWidth: 1, borderColor: 'rgba(76, 175, 80, 0.3)',
+  },
+  pairingBadgeText: { color: '#4CAF50', fontSize: 12, fontWeight: '500' },
   logoutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 8, padding: 16, marginTop: 8,

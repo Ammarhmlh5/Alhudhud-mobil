@@ -1,12 +1,7 @@
 -- AlHudhud Connect - Supabase PostgreSQL Schema
--- Run this in the Supabase SQL Editor to set up all tables.
 
--- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- ============================================================
--- USERS
--- ============================================================
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email TEXT UNIQUE NOT NULL,
@@ -20,9 +15,16 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ============================================================
--- CONNECTORS
--- ============================================================
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  plan TEXT DEFAULT 'free',
+  status TEXT DEFAULT 'active',
+  started_at TIMESTAMPTZ DEFAULT NOW(),
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS connectors (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -35,17 +37,14 @@ CREATE TABLE IF NOT EXISTS connectors (
   auth_type TEXT DEFAULT 'NONE',
   auth_config JSONB DEFAULT '{}',
   data_mapping JSONB,
+  sync_interval INTEGER,
   is_active BOOLEAN DEFAULT true,
   last_status TEXT DEFAULT 'UNKNOWN',
-  sync_interval INTEGER,
   last_synced_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ============================================================
--- WEBHOOK EVENTS
--- ============================================================
 CREATE TABLE IF NOT EXISTS webhook_events (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   connector_id UUID REFERENCES connectors(id) ON DELETE SET NULL,
@@ -54,12 +53,10 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   headers JSONB,
   body TEXT,
   source_ip TEXT,
+  status TEXT DEFAULT 'received',
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ============================================================
--- MESSAGE LOGS
--- ============================================================
 CREATE TABLE IF NOT EXISTS message_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -71,20 +68,6 @@ CREATE TABLE IF NOT EXISTS message_logs (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ============================================================
--- SUBSCRIPTIONS
--- ============================================================
-CREATE TABLE IF NOT EXISTS subscriptions (
-  user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  plan TEXT DEFAULT 'free',
-  status TEXT DEFAULT 'active',
-  started_at TIMESTAMPTZ DEFAULT NOW(),
-  expires_at TIMESTAMPTZ
-);
-
--- ============================================================
--- SYNC QUEUE
--- ============================================================
 CREATE TABLE IF NOT EXISTS sync_queue (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -98,18 +81,29 @@ CREATE TABLE IF NOT EXISTS sync_queue (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ============================================================
--- MIGRATIONS TRACKING
--- ============================================================
+CREATE TABLE IF NOT EXISTS devices (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  api_key TEXT UNIQUE NOT NULL,
+  serial_number TEXT,
+  ip_address TEXT,
+  device_name TEXT,
+  device_model TEXT,
+  os_name TEXT,
+  os_version TEXT,
+  app_version TEXT,
+  is_active BOOLEAN DEFAULT true,
+  last_active_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS _migrations (
   id TEXT PRIMARY KEY,
   description TEXT NOT NULL,
   applied_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- ============================================================
--- INDEXES
--- ============================================================
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_connectors_user_id ON connectors(user_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_connector_id ON webhook_events(connector_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_events_user_id ON webhook_events(user_id);
@@ -119,33 +113,9 @@ CREATE INDEX IF NOT EXISTS idx_message_logs_connector_id ON message_logs(connect
 CREATE INDEX IF NOT EXISTS idx_message_logs_status ON message_logs(status);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_user_id ON sync_queue(user_id);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
+CREATE INDEX IF NOT EXISTS idx_devices_api_key ON devices(api_key);
 
--- ============================================================
--- RPC FUNCTION: exec_sql (used by gateway adapter for JOINs)
--- ============================================================
-CREATE OR REPLACE FUNCTION exec_sql(query text)
-RETURNS SETOF json AS $$
-BEGIN
-  RETURN QUERY EXECUTE query;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- ============================================================
--- SEED: Admin user (password: AlHudhud@Admin#2024)
--- ============================================================
-INSERT INTO users (id, email, name, password, role, is_active, auth_provider)
-VALUES (
-  '00000000-0000-0000-0000-000000000001',
-  'admin@alhudhud.com',
-  'Admin',
-  '$2a$12$LJ3m4ys3Lz0YBNOURq0y5OjCfMJM1aHqN1XVh5Z6gR5bS7dD1eG3e',
-  'admin',
-  true,
-  'email'
-) ON CONFLICT (email) DO NOTHING;
-
-INSERT INTO subscriptions (user_id, plan, status)
-VALUES ('00000000-0000-0000-0000-000000000001', 'business', 'active')
-ON CONFLICT (user_id) DO NOTHING;
+-- Admin user is created via `npm run seed` (uses ADMIN_DEFAULT_PASSWORD env var)
+-- NEVER store passwords in schema files

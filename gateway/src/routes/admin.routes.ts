@@ -1,46 +1,51 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
+import { requireAdmin, asyncHandler } from '../middleware/auth';
+import { queryOne, queryAll, execute } from '../db';
 import { authService } from '../services/auth.service';
-import { queryAll, execute } from '../db';
 
 const router = Router();
 
-function requireAdmin(req: Request, res: Response, next: Function) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ message: 'Unauthorized' });
-
-  const decoded = authService.verifyToken(token);
-  if (!decoded || decoded.role !== 'admin') {
-    return res.status(403).json({ message: 'Admin access required' });
-  }
-  (req as any).user = decoded;
-  next();
-}
-
 router.use(requireAdmin);
 
-router.get('/stats', async (_req: Request, res: Response) => {
+// ─── Helper: validate and cap limit parameter ───────────────
+
+function validateLimit(limit: unknown, defaultLimit = 50, maxLimit = 100): number {
+  const parsed = parseInt(String(limit || defaultLimit), 10);
+  if (isNaN(parsed)) return defaultLimit;
+  return Math.min(Math.max(parsed, 1), maxLimit);
+}
+
+// ─── Routes ─────────────────────────────────────────────────
+
+router.get('/stats', asyncHandler(async (_req: Request, res: Response) => {
   res.json(await authService.getStats());
-});
+}));
 
-router.get('/accounts', async (_req: Request, res: Response) => {
-  const users = await authService.getAllUsers();
+router.get('/accounts', asyncHandler(async (req: Request, res: Response) => {
+  const limit = validateLimit(req.query.limit);
+  const users = await queryAll(
+    `SELECT u.id, u.email, u.name, u.role, u.is_active, u.created_at, s.plan, s.status as sub_status
+     FROM users u LEFT JOIN subscriptions s ON u.id = s.user_id
+     ORDER BY u.created_at DESC LIMIT ?`,
+    [limit]
+  );
   res.json(users);
-});
+}));
 
-router.patch('/accounts/:id/status', async (req: Request, res: Response) => {
-  const id = req.params.id as string;
+router.patch('/accounts/:id/status', asyncHandler(async (req: Request, res: Response) => {
   const { isActive } = req.body;
 
   if (typeof isActive !== 'boolean') {
     return res.status(400).json({ message: 'isActive يجب أن يكون boolean' });
   }
 
-  await authService.toggleUserStatus(id, isActive);
+  await authService.toggleUserStatus(String(req.params.id), isActive);
   res.json({ success: true });
-});
+}));
 
-router.get('/logs', async (req: Request, res: Response) => {
-  const limit = Number(req.query.limit) || 50;
+router.get('/logs', asyncHandler(async (req: Request, res: Response) => {
+  const limit = validateLimit(req.query.limit);
   const logs = await queryAll(`
     SELECT ml.*, u.email, c.name as connector_name
     FROM message_logs ml
@@ -50,10 +55,10 @@ router.get('/logs', async (req: Request, res: Response) => {
   `, [limit]);
 
   res.json(logs);
-});
+}));
 
-router.get('/webhooks', async (req: Request, res: Response) => {
-  const limit = Number(req.query.limit) || 50;
+router.get('/webhooks', asyncHandler(async (req: Request, res: Response) => {
+  const limit = validateLimit(req.query.limit);
   const events = await queryAll(`
     SELECT we.*, u.email, c.name as connector_name
     FROM webhook_events we
@@ -63,10 +68,10 @@ router.get('/webhooks', async (req: Request, res: Response) => {
   `, [limit]);
 
   res.json(events);
-});
+}));
 
-router.get('/connectors', async (req: Request, res: Response) => {
-  const limit = Number(req.query.limit) || 100;
+router.get('/connectors', asyncHandler(async (req: Request, res: Response) => {
+  const limit = validateLimit(req.query.limit);
   const connectors = await queryAll(`
     SELECT c.*, u.email as user_email
     FROM connectors c
@@ -75,7 +80,7 @@ router.get('/connectors', async (req: Request, res: Response) => {
   `, [limit]);
 
   res.json(connectors);
-});
+}));
 
 router.get('/presets', (_req: Request, res: Response) => {
   const presets = [
@@ -93,14 +98,21 @@ router.get('/presets', (_req: Request, res: Response) => {
   res.json(presets);
 });
 
-router.get('/devices', async (req: Request, res: Response) => {
+router.get('/devices', asyncHandler(async (_req: Request, res: Response) => {
   const devices = await authService.getAllDevices();
   res.json(devices);
-});
+}));
 
-router.delete('/devices/:id', async (req: Request, res: Response) => {
+router.delete('/devices/:id', asyncHandler(async (req: Request, res: Response) => {
+  const device = await queryOne('SELECT * FROM devices WHERE id = ?', [req.params.id]);
+  if (!device) return res.status(404).json({ message: 'Device not found' });
+
   await execute('DELETE FROM devices WHERE id = ?', [req.params.id]);
+  await execute(
+    `INSERT INTO message_logs (id, user_id, direction, status, payload) VALUES (?, ?, 'ADMIN', 'SUCCESS', ?)`,
+    [crypto.randomUUID(), req.user!.id, JSON.stringify({ action: 'delete_device', target: req.params.id, target_user: device.user_id })]
+  );
   res.json({ success: true });
-});
+}));
 
 export default router;

@@ -11,7 +11,7 @@ export class DataMapper {
       return this.applyTemplate(mapping.template, data);
     }
 
-    const result: Record<string, any> = {};
+    const result: Record<string, any> = { ...data };
     for (const rule of mapping.rules) {
       const value = this.resolveValue(data, rule);
       if (value !== undefined) {
@@ -31,6 +31,8 @@ export class DataMapper {
       const value = this.getNestedValue(payload, rule.sourceField);
       if (value !== undefined) {
         result[rule.targetField] = this.transform(value, rule.transform || 'none');
+      } else if (rule.defaultValue !== undefined) {
+        result[rule.targetField] = rule.defaultValue;
       }
     }
     return result;
@@ -55,10 +57,11 @@ export class DataMapper {
     let value: any;
 
     if (rule.concatFields && rule.transform === 'concat') {
+      const separator = (rule as any).separator ?? ' ';
       value = rule.concatFields
         .map(f => this.getNestedValue(data, f))
-        .filter(v => v !== undefined)
-        .join(' ');
+        .filter(v => v !== undefined && v !== null && v !== '')
+        .join(separator);
     } else {
       value = this.getNestedValue(data, rule.sourceField);
     }
@@ -87,7 +90,8 @@ export class DataMapper {
       case 'to_string':
         return String(value);
       case 'to_number':
-        return Number(value);
+        const num = Number(value);
+        return isNaN(num) ? value : num;
       case 'timestamp':
         return new Date().toISOString();
       default:

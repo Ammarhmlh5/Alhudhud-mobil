@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, Modal, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 
@@ -10,12 +10,24 @@ interface ApiKeyModalProps {
 
 export function ApiKeyModal({ visible, apiKey, onClose }: ApiKeyModalProps) {
   const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopy = async () => {
     try {
       await Clipboard.setStringAsync(apiKey);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       Alert.alert('خطأ', 'فشل نسخ المفتاح');
     }

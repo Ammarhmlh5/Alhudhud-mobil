@@ -8,12 +8,14 @@ const SMTP_FROM = process.env.SMTP_FROM || 'AlHudhud Connect <noreply@alhudhud.c
 
 let transporter: nodemailer.Transporter | null = null;
 
-function getTransporter(): nodemailer.Transporter {
+function getTransporter(): nodemailer.Transporter | null {
   if (transporter) return transporter;
 
   if (!SMTP_HOST) {
-    console.log('  ⚠️  SMTP not configured. API key emails will be logged to console.');
-    return null as any;
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('  ⚠️  SMTP not configured. API key emails will be logged to console.');
+    }
+    return null;
   }
 
   transporter = nodemailer.createTransport({
@@ -59,7 +61,9 @@ export async function sendApiKeyEmail(email: string, apiKey: string): Promise<bo
 
   const transport = getTransporter();
   if (!transport) {
-    console.log(`\n  📧 API Key for ${email}: ${apiKey}\n`);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`  📧 API Key generated for ${email} (email not sent — no SMTP)`);
+    }
     return true;
   }
 

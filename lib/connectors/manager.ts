@@ -1,5 +1,7 @@
 import { getDB } from '@/lib/db/init';
 import { restEngine } from './engines/rest.engine';
+import { connectorSyncService } from '../services/connector-sync.service';
+import { gatewayService } from '../services/gateway.service';
 import {
   ConnectorConfig,
   ConnectorFormData,
@@ -10,13 +12,35 @@ import {
 } from './types';
 
 class ConnectorManager {
+  isDatabaseReady(): boolean {
+    const db = getDB();
+    if (!db) return false;
+    try {
+      db.getFirstSync('SELECT 1 FROM connectors LIMIT 0');
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async getAll(): Promise<ConnectorConfig[]> {
     const db = getDB();
-    if (!db) return [];
+    if (!db) {
+      console.error('[ConnectorManager] Database not initialized - getDB() returned null');
+      return [];
+    }
 
     try {
       const rows = db.getAllSync('SELECT * FROM connectors ORDER BY name ASC');
-      return (rows as any[]).map(this.rowToConfig);
+      const configs: ConnectorConfig[] = [];
+      for (const row of rows as any[]) {
+        try {
+          configs.push(this.rowToConfig(row));
+        } catch (e) {
+          console.error(`[ConnectorManager] Error parsing connector "${row?.id}":`, e);
+        }
+      }
+      return configs;
     } catch (e) {
       console.error('[ConnectorManager] Error loading connectors:', e);
       return [];
@@ -65,7 +89,14 @@ class ConnectorManager {
       [id, data.name, data.platformType, data.protocol, data.endpointUrl, data.httpMethod, headers, data.authType, authConfig, dataMapping, now, now]
     );
 
-    return this.getById(id) as Promise<ConnectorConfig>;
+    this.syncToGateway();
+    const created = await this.getById(id);
+    if (!created) throw new Error('Failed to create connector');
+    return created;
+  }
+
+  private syncToGateway(): void {
+    connectorSyncService.pushConnectors().catch(() => {});
   }
 
   async update(id: string, data: Partial<ConnectorFormData>): Promise<void> {
@@ -103,6 +134,7 @@ class ConnectorManager {
 
     params.push(id);
     db.runSync(`UPDATE connectors SET ${sets.join(', ')} WHERE id = ?`, params);
+    this.syncToGateway();
   }
 
   async updateSchedule(id: string, intervalMinutes: number | null): Promise<void> {
@@ -131,12 +163,15 @@ class ConnectorManager {
       new Date().toISOString(),
       id,
     ]);
+    this.syncToGateway();
   }
 
   async delete(id: string): Promise<void> {
     const db = getDB();
     if (!db) return;
     db.runSync('DELETE FROM connectors WHERE id = ?', [id]);
+    db.runSync('DELETE FROM message_logs WHERE connector_id = ?', [id]);
+    gatewayService.deleteConnector(id).catch(() => {});
   }
 
   async getDueSyncs(): Promise<ConnectorConfig[]> {
@@ -186,22 +221,34 @@ class ConnectorManager {
     if (!connector) return { success: false, error: 'Connector not found' };
     if (!connector.isActive) return { success: false, error: 'Connector is disabled' };
 
-    const result = await restEngine.send(connector, payload);
-    const db = getDB();
+    let lastResult: { success: boolean; data?: any; error?: string } = { success: false, error: '' };
+    const MAX_RETRIES = 2;
 
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      lastResult = await restEngine.send(connector, payload);
+      if (lastResult.success) break;
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+
+    const db = getDB();
     const logId = crypto.randomUUID?.() || `${Date.now()}`;
     db?.runSync(
       `INSERT INTO message_logs (id, connector_id, direction, status, payload, error_message, created_at)
        VALUES (?, ?, 'SENT', ?, ?, ?, ?)`,
-      [logId, id, result.success ? 'SUCCESS' : 'FAILED', JSON.stringify(payload), result.error || null, new Date().toISOString()]
+      [logId, id, lastResult.success ? 'SUCCESS' : 'FAILED', JSON.stringify(payload), lastResult.error || null, new Date().toISOString()]
     );
 
-    return result;
+    return lastResult;
   }
 
   async getStats(): Promise<ConnectorStats> {
     const db = getDB();
-    if (!db) return { total: 0, online: 0, offline: 0, totalMessages: 0, successMessages: 0, failedMessages: 0 };
+    if (!db) {
+      console.error('[ConnectorManager] Database not initialized for stats');
+      return { total: 0, online: 0, offline: 0, totalMessages: 0, successMessages: 0, failedMessages: 0 };
+    }
 
     try {
       const connectors = db.getAllSync('SELECT last_status FROM connectors') as any[];
@@ -218,7 +265,8 @@ class ConnectorManager {
         successMessages: logs?.success || 0,
         failedMessages: logs?.failed || 0,
       };
-    } catch {
+    } catch (e) {
+      console.error('[ConnectorManager] Error loading stats:', e);
       return { total: 0, online: 0, offline: 0, totalMessages: 0, successMessages: 0, failedMessages: 0 };
     }
   }
@@ -242,7 +290,9 @@ class ConnectorManager {
     const connector = await this.getById(id);
     if (!connector) return null;
 
-    const exportData = {
+    const hasCredentials = connector.auth.type !== 'NONE';
+    const exportData: Record<string, any> = {
+      _warning: hasCredentials ? 'هذا الملف يحتوي على بيانات اعتماد حساسة — لا تشاركه' : undefined,
       name: connector.name,
       platformType: connector.platformType,
       protocol: connector.protocol,
@@ -251,7 +301,13 @@ class ConnectorManager {
       headers: connector.headers,
       auth: {
         type: connector.auth.type,
+        apiKey: connector.auth.apiKey,
         apiKeyHeader: connector.auth.apiKeyHeader,
+        username: connector.auth.username,
+        password: connector.auth.password,
+        token: connector.auth.token,
+        clientId: connector.auth.clientId,
+        clientSecret: connector.auth.clientSecret,
         tokenUrl: connector.auth.tokenUrl,
         scope: connector.auth.scope,
       },
@@ -263,6 +319,11 @@ class ConnectorManager {
   }
 
   async importConfig(jsonStr: string): Promise<ConnectorConfig> {
+    // Limit input size to prevent DoS via large payloads
+    if (jsonStr.length > 1024 * 1024) {
+      throw new Error('الملف كبير جداً — الحد الأقصى 1MB');
+    }
+
     const data = JSON.parse(jsonStr);
     if (!data.name || !data.protocol || !data.endpointUrl) {
       throw new Error('الملف غير صالح: يجب أن يحتوي على name, protocol, endpointUrl');
@@ -275,12 +336,28 @@ class ConnectorManager {
       endpointUrl: data.endpointUrl,
       httpMethod: data.httpMethod || 'POST',
       authType: data.auth?.type || 'NONE',
+      apiKey: data.auth?.apiKey || '',
       apiKeyHeader: data.auth?.apiKeyHeader || '',
+      username: data.auth?.username || '',
+      password: data.auth?.password || '',
+      token: data.auth?.token || '',
+      clientId: data.auth?.clientId || '',
+      clientSecret: data.auth?.clientSecret || '',
       tokenUrl: data.auth?.tokenUrl || '',
       scope: data.auth?.scope || '',
       dataMapping: data.dataMapping ? JSON.stringify(data.dataMapping) : undefined,
       scheduleInterval: data.scheduleInterval || undefined,
     });
+  }
+
+  private safeJsonParse(str: string | null | undefined, fallback: any): any {
+    if (!str) return fallback;
+    try {
+      return JSON.parse(str);
+    } catch (e) {
+      console.error('[ConnectorManager] JSON parse error:', e, 'Raw value:', str.substring(0, 100));
+      return fallback;
+    }
   }
 
   private rowToConfig(row: any): ConnectorConfig {
@@ -291,9 +368,9 @@ class ConnectorManager {
       protocol: row.protocol as ProtocolType,
       endpointUrl: row.endpoint_url,
       httpMethod: row.http_method as any,
-      headers: row.headers ? JSON.parse(row.headers) : undefined,
-      auth: row.auth_config ? JSON.parse(row.auth_config) : { type: 'NONE' as AuthType },
-      dataMapping: row.data_mapping ? JSON.parse(row.data_mapping) : null,
+      headers: this.safeJsonParse(row.headers, undefined),
+      auth: this.safeJsonParse(row.auth_config, { type: 'NONE' as AuthType }),
+      dataMapping: this.safeJsonParse(row.data_mapping, null),
       scheduleInterval: row.sync_interval || null,
       lastSyncedAt: row.last_synced_at || null,
       isActive: row.is_active === 1,
@@ -307,9 +384,13 @@ class ConnectorManager {
   private parseHeaders(headersStr: string): Record<string, string> {
     const result: Record<string, string> = {};
     headersStr.split('\n').forEach(line => {
-      const [key, ...vals] = line.split(':');
-      if (key && vals.length) {
-        result[key.trim()] = vals.join(':').trim();
+      const colonIndex = line.indexOf(':');
+      if (colonIndex > 0) {
+        const key = line.substring(0, colonIndex).trim();
+        const value = line.substring(colonIndex + 1).trim();
+        if (key) {
+          result[key] = value;
+        }
       }
     });
     return result;

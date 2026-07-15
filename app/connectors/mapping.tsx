@@ -122,7 +122,7 @@ export default function MappingScreen() {
         </ThemedView>
       ) : (
         rules.map((rule, index) => (
-          <ThemedView key={index} style={styles.ruleCard}>
+          <ThemedView key={`${rule.sourceField}-${rule.targetField}-${index}`} style={styles.ruleCard}>
             <View style={styles.ruleHeader}>
               <ThemedText style={styles.ruleNum}>القاعدة {index + 1}</ThemedText>
               <TouchableOpacity onPress={() => removeRule(index)}>

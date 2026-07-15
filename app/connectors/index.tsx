@@ -1,6 +1,6 @@
-import { StyleSheet, FlatList, TouchableOpacity, View, Alert, TextInput, Modal, RefreshControl } from 'react-native';
+import { StyleSheet, FlatList, TouchableOpacity, View, Alert, TextInput, Modal, RefreshControl, ActivityIndicator } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
@@ -13,46 +13,75 @@ export default function ConnectorsScreen() {
   const [connectors, setConnectors] = useState<ConnectorConfig[]>([]);
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [importJson, setImportJson] = useState('');
+
+  const loadConnectors = useCallback(async () => {
+    try {
+      setError(null);
+      const dbReady = connectorManager.isDatabaseReady();
+      if (!dbReady) {
+        setError('قاعدة البيانات غير جاهزة. يرجى إعادة تشغيل التطبيق.');
+        setConnectors([]);
+        return;
+      }
+      const result = await connectorManager.getAll();
+      setConnectors(result);
+    } catch (e: any) {
+      console.error('[ConnectorsScreen] Error loading connectors:', e);
+      setError(`خطأ في تحميل الاتصالات: ${e.message || 'خطأ غير معروف'}`);
+      setConnectors([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
       loadConnectors();
-    }, [])
+    }, [loadConnectors])
   );
-
-  const loadConnectors = async () => {
-    const result = await connectorManager.getAll();
-    setConnectors(result);
-  };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadConnectors();
     setRefreshing(false);
-  }, []);
+  }, [loadConnectors]);
 
-  const filtered = search.trim()
-    ? connectors.filter(c =>
-        c.name.toLowerCase().includes(search.toLowerCase()) ||
-        c.platformType.toLowerCase().includes(search.toLowerCase()) ||
-        c.endpointUrl.toLowerCase().includes(search.toLowerCase())
-      )
-    : connectors;
+  const filtered = useMemo(() => {
+    if (!search.trim()) return connectors;
+    const q = search.toLowerCase();
+    return connectors.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.platformType.toLowerCase().includes(q) ||
+      c.endpointUrl.toLowerCase().includes(q)
+    );
+  }, [connectors, search]);
 
   const handleToggle = async (id: string) => {
-    await connectorManager.toggleActive(id);
-    loadConnectors();
+    try {
+      await connectorManager.toggleActive(id);
+      loadConnectors();
+    } catch (error) {
+      console.error('Failed to toggle connector:', error);
+      Alert.alert('خطأ', 'فشل تبديل حالة الاتصال');
+    }
   };
 
   const handleTest = async (id: string) => {
-    const result = await connectorManager.testConnection(id);
-    Alert.alert(
-      result.success ? '✅ اتصال ناجح' : '❌ فشل الاتصال',
-      result.success ? `زمن الاستجابة: ${result.latency}ms` : result.error || 'خطأ غير معروف'
-    );
-    loadConnectors();
+    try {
+      const result = await connectorManager.testConnection(id);
+      Alert.alert(
+        result.success ? '✅ اتصال ناجح' : '❌ فشل الاتصال',
+        result.success ? `زمن الاستجابة: ${result.latency}ms` : result.error || 'خطأ غير معروف'
+      );
+      loadConnectors();
+    } catch (error) {
+      console.error('Failed to test connection:', error);
+      Alert.alert('خطأ', 'فشل اختبار الاتصال');
+    }
   };
 
   const handleDelete = (id: string, name: string) => {
@@ -62,8 +91,13 @@ export default function ConnectorsScreen() {
         text: 'حذف',
         style: 'destructive',
         onPress: async () => {
-          await connectorManager.delete(id);
-          loadConnectors();
+          try {
+            await connectorManager.delete(id);
+            loadConnectors();
+          } catch (error) {
+            console.error('Failed to delete connector:', error);
+            Alert.alert('خطأ', 'فشل حذف الاتصال');
+          }
         },
       },
     ]);
@@ -91,6 +125,20 @@ export default function ConnectorsScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      {loading ? (
+        <ThemedView style={styles.centerState}>
+          <ActivityIndicator size="large" color="#E6A23C" />
+          <ThemedText style={styles.stateText}>جارٍ تحميل الاتصالات...</ThemedText>
+        </ThemedView>
+      ) : error ? (
+        <ThemedView style={styles.centerState}>
+          <IconSymbol name="exclamationmark.triangle.fill" size={48} color="#F44336" />
+          <ThemedText style={[styles.stateText, { color: '#F44336' }]}>{error}</ThemedText>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => { setLoading(true); loadConnectors(); }}>
+            <ThemedText style={styles.retryBtnText}>إعادة المحاولة</ThemedText>
+          </TouchableOpacity>
+        </ThemedView>
+      ) : (
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
@@ -100,7 +148,7 @@ export default function ConnectorsScreen() {
           <ThemedView style={styles.headerSection}>
             <ThemedView style={styles.headerRow}>
               <ThemedText type="title">الاتصالات</ThemedText>
-              <TouchableOpacity style={styles.importBtn} onPress={() => setShowImport(true)}>
+              <TouchableOpacity style={styles.importBtn} onPress={() => setShowImport(true)} accessibilityLabel="استيراد اتصال" accessibilityRole="button">
                 <IconSymbol name="square.and.arrow.down.fill" size={16} color="#E6A23C" />
                 <ThemedText style={styles.importBtnText}>استيراد</ThemedText>
               </TouchableOpacity>
@@ -114,6 +162,7 @@ export default function ConnectorsScreen() {
                 placeholder="بحث..."
                 placeholderTextColor="#999"
                 autoCapitalize="none"
+                accessibilityLabel="بحث في الاتصالات"
               />
               {search ? (
                 <TouchableOpacity onPress={() => setSearch('')}>
@@ -149,12 +198,16 @@ export default function ConnectorsScreen() {
               <TouchableOpacity
                 style={[styles.actionBtn, { backgroundColor: '#E6A23C' }]}
                 onPress={() => router.push(`/connectors/add?id=${item.id}`)}
+                accessibilityLabel="تعديل"
+                accessibilityRole="button"
               >
                 <ThemedText style={styles.actionBtnText}>تعديل</ThemedText>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, { backgroundColor: item.isActive ? '#FF9800' : '#4CAF50' }]}
                 onPress={() => handleToggle(item.id)}
+                accessibilityLabel={item.isActive ? 'إيقاف' : 'تشغيل'}
+                accessibilityRole="button"
               >
                 <ThemedText style={styles.actionBtnText}>
                   {item.isActive ? 'إيقاف' : 'تشغيل'}
@@ -163,6 +216,8 @@ export default function ConnectorsScreen() {
               <TouchableOpacity
                 style={[styles.actionBtn, { backgroundColor: '#2196F3' }]}
                 onPress={() => handleTest(item.id)}
+                accessibilityLabel="اختبار الاتصال"
+                accessibilityRole="button"
               >
                 <ThemedText style={styles.actionBtnText}>اختبار</ThemedText>
               </TouchableOpacity>
@@ -178,6 +233,7 @@ export default function ConnectorsScreen() {
           </ThemedView>
         )}
       />
+      )}
       <Modal visible={showImport} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <ThemedView style={styles.modalContent}>
@@ -194,9 +250,10 @@ export default function ConnectorsScreen() {
               placeholder='{"name": "...", "protocol": "REST", ...}'
               placeholderTextColor="#999"
               autoCapitalize="none"
+              accessibilityLabel="بيانات JSON للاستيراد"
             />
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => { setShowImport(false); setImportJson(''); }}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => { setShowImport(false); setImportJson(''); }} accessibilityLabel="إلغاء" accessibilityRole="button">
                 <ThemedText style={{ color: '#666' }}>إلغاء</ThemedText>
               </TouchableOpacity>
               <TouchableOpacity style={styles.modalImportBtn} onPress={async () => {
@@ -209,7 +266,7 @@ export default function ConnectorsScreen() {
                 } catch (e: any) {
                   Alert.alert('خطأ', e.message);
                 }
-              }}>
+              }} accessibilityLabel="استيراد" accessibilityRole="button">
                 <ThemedText style={{ color: '#fff', fontWeight: '600' }}>استيراد</ThemedText>
               </TouchableOpacity>
             </View>
@@ -219,7 +276,24 @@ export default function ConnectorsScreen() {
 
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => router.push('/connectors/add')}
+        onPress={() => {
+          Alert.alert('إضافة اتصال', 'اختر طريقة الإضافة', [
+            {
+              text: 'مسح QR للربط السريع',
+              onPress: () => router.push('/connectors/scan'),
+            },
+            {
+              text: 'إضافة يدوياً',
+              onPress: () => router.push('/connectors/add'),
+            },
+            {
+              text: 'إلغاء',
+              style: 'cancel',
+            },
+          ]);
+        }}
+        accessibilityLabel="إضافة اتصال جديد"
+        accessibilityRole="button"
       >
         <IconSymbol name="plus" size={30} color="#fff" />
       </TouchableOpacity>
@@ -229,6 +303,13 @@ export default function ConnectorsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  centerState: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 12, padding: 24 },
+  stateText: { fontSize: 14, opacity: 0.7, textAlign: 'center' },
+  retryBtn: {
+    marginTop: 8, paddingHorizontal: 20, paddingVertical: 10,
+    borderRadius: 10, backgroundColor: '#E6A23C',
+  },
+  retryBtnText: { color: '#fff', fontWeight: '600' },
   list: { paddingBottom: 80 },
   headerSection: { padding: 16, gap: 10 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },

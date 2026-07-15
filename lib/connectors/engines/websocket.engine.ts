@@ -3,41 +3,56 @@ import { ConnectorConfig } from '../types';
 type MessageHandler = (data: any) => void;
 type StatusHandler = (status: string) => void;
 
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_DELAY = 1000;
+const MAX_DELAY = 30000;
+
 export class WebSocketEngine {
-  private connections: Map<string, { ws: WebSocket; reconnectTimer?: any }> = new Map();
+  private connections: Map<string, {
+    ws: WebSocket;
+    reconnectTimer?: ReturnType<typeof setTimeout>;
+    attempts: number;
+  }> = new Map();
 
   connect(config: ConnectorConfig, onMessage: MessageHandler, onStatus: StatusHandler): void {
     this.disconnect(config.id);
 
-    try {
-      const ws = new WebSocket(config.endpointUrl);
+    const attemptConnect = () => {
+      try {
+        const ws = new WebSocket(config.endpointUrl);
 
-      ws.onopen = () => {
-        onStatus('ONLINE');
-      };
+        ws.onopen = () => {
+          const conn = this.connections.get(config.id);
+          if (conn) conn.attempts = 0;
+          onStatus('ONLINE');
+        };
 
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          onMessage(data);
-        } catch {
-          onMessage(event.data);
-        }
-      };
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            onMessage(data);
+          } catch {
+            onMessage(event.data);
+          }
+        };
 
-      ws.onerror = () => {
-        onStatus('ERROR');
-      };
+        ws.onerror = () => {
+          onStatus('ERROR');
+        };
 
-      ws.onclose = () => {
-        onStatus('OFFLINE');
-        this.scheduleReconnect(config, onMessage, onStatus);
-      };
+        ws.onclose = () => {
+          onStatus('OFFLINE');
+          this.scheduleReconnect(config, onMessage, onStatus);
+        };
 
-      this.connections.set(config.id, { ws });
+        this.connections.set(config.id, { ws, attempts: 0 });
       } catch {
         onStatus('ERROR');
-    }
+        this.scheduleReconnect(config, onMessage, onStatus);
+      }
+    };
+
+    attemptConnect();
   }
 
   disconnect(connectorId: string): void {
@@ -77,9 +92,18 @@ export class WebSocketEngine {
     const existing = this.connections.get(config.id);
     if (!existing) return;
 
+    if (existing.attempts >= MAX_RECONNECT_ATTEMPTS) {
+      console.warn(`[WS] Max reconnect attempts reached for ${config.id}`);
+      return;
+    }
+
+    const delay = Math.min(BASE_DELAY * Math.pow(2, existing.attempts), MAX_DELAY);
+    existing.attempts++;
+
     existing.reconnectTimer = setTimeout(() => {
+      existing.reconnectTimer = undefined;
       this.connect(config, onMessage, onStatus);
-    }, 5000);
+    }, delay);
   }
 }
 

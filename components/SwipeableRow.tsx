@@ -1,5 +1,5 @@
 import { StyleSheet, Animated, TouchableOpacity, View, PanResponder } from 'react-native';
-import { ReactNode, useRef } from 'react';
+import { ReactNode, useRef, useEffect } from 'react';
 import { ThemedText } from './ThemedText';
 
 interface Props {
@@ -9,6 +9,11 @@ interface Props {
 
 export function SwipeableRow({ children, onDelete }: Props) {
   const translateX = useRef(new Animated.Value(0)).current;
+  const onDeleteRef = useRef(onDelete);
+
+  useEffect(() => {
+    onDeleteRef.current = onDelete;
+  }, [onDelete]);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -37,16 +42,15 @@ export function SwipeableRow({ children, onDelete }: Props) {
     })
   ).current;
 
+  const handleDelete = () => {
+    Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
+    onDeleteRef.current();
+  };
+
   return (
     <View style={styles.wrapper}>
       <View style={styles.deleteContainer}>
-        <TouchableOpacity
-          style={styles.deleteBtn}
-          onPress={() => {
-            Animated.spring(translateX, { toValue: 0, useNativeDriver: true }).start();
-            onDelete();
-          }}
-        >
+        <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete}>
           <ThemedText style={styles.deleteText}>حذف</ThemedText>
         </TouchableOpacity>
       </View>

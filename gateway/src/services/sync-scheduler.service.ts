@@ -1,4 +1,4 @@
-import { queryAll, execute } from '../db';
+import { queryAll, execute, executeBatch } from '../db';
 import { broadcastToUser } from './ws.service';
 
 interface ConnectorRow {
@@ -10,12 +10,19 @@ interface ConnectorRow {
 }
 
 let schedulerTimer: any = null;
+let isRunning = false;
 
 export function startSyncScheduler() {
   if (schedulerTimer) return;
   console.log('  ⏰ Sync scheduler started (checking every 60s)');
 
   schedulerTimer = setInterval(async () => {
+    if (isRunning) {
+      console.log('  ⏰ Sync scheduler: skipping — previous run still active');
+      return;
+    }
+    isRunning = true;
+
     try {
       const connectors = await queryAll(`
         SELECT id, user_id, name, sync_interval, last_synced_at
@@ -43,15 +50,26 @@ export function startSyncScheduler() {
           connectorName: c.name,
           timestamp: new Date().toISOString(),
         });
-
-        await execute('UPDATE connectors SET last_synced_at = ? WHERE id = ?', [new Date().toISOString(), c.id]);
       }
 
       if (due.length > 0) {
+        const now = new Date().toISOString();
+        const statements = due.map(c => ({
+          sql: 'UPDATE connectors SET last_synced_at = ? WHERE id = ?',
+          params: [now, c.id],
+        }));
+        await executeBatch(statements);
         console.log(`  ⏰ Triggered sync for ${due.length} connector(s)`);
       }
+
+      await execute(
+        "DELETE FROM pairing_tokens WHERE expires_at < datetime('now') AND is_used = 0",
+        []
+      );
     } catch (err) {
       console.error('  ⏰ Sync scheduler error:', err);
+    } finally {
+      isRunning = false;
     }
   }, 60000);
 }

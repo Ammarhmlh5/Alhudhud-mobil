@@ -56,14 +56,14 @@ export default function AddConnectorScreen() {
       setPlatformType(c.platformType);
       setProtocol(c.protocol);
       setEndpointUrl(c.endpointUrl);
-      setHttpMethod((c as any).httpMethod || 'POST');
+      setHttpMethod(c.httpMethod || 'POST');
       setAuthType(c.auth.type);
-      setApiKey((c.auth as any).apiKey || '');
-      setApiKeyHeader((c.auth as any).apiKeyHeader || '');
-      setUsername((c.auth as any).username || '');
-      setPassword((c.auth as any).password || '');
-      setToken(c.auth.type === 'OAUTH2' ? ((c.auth as any).tokenUrl || '') : ((c.auth as any).token || ''));
-      setHeaders((c as any).rawHeaders || '');
+      setApiKey(c.auth.apiKey || '');
+      setApiKeyHeader(c.auth.apiKeyHeader || '');
+      setUsername(c.auth.username || '');
+      setPassword(c.auth.password || '');
+      setToken(c.auth.type === 'OAUTH2' ? (c.auth.tokenUrl || '') : (c.auth.token || ''));
+      setHeaders(c.headers ? Object.entries(c.headers).map(([k, v]) => `${k}: ${v}`).join('\n') : '');
     } catch { /* ignore */ }
   }, [editId]);
 
@@ -100,6 +100,17 @@ export default function AddConnectorScreen() {
   const handleSave = async () => {
     if (!name.trim()) { Alert.alert('خطأ', 'الرجاء إدخال اسم الاتصال'); return; }
     if (!endpointUrl.trim()) { Alert.alert('خطأ', 'الرجاء إدخال عنوان URL'); return; }
+
+    try {
+      const parsed = new URL(endpointUrl.trim());
+      if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
+        Alert.alert('خطأ', 'صيغة الرابط غير صحيحة — يجب أن يبدأ بـ http:// أو https:// أو ws://');
+        return;
+      }
+    } catch {
+      Alert.alert('خطأ', 'صيغة الرابط غير صحيحة');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -201,19 +212,19 @@ export default function AddConnectorScreen() {
 
       <ThemedView style={styles.field}>
         <ThemedText style={styles.label}>اسم الاتصال</ThemedText>
-        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="مثال: منصة الرسائل" placeholderTextColor="#999" />
+        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="مثال: منصة الرسائل" placeholderTextColor="#999" accessibilityLabel="اسم الاتصال" />
       </ThemedView>
 
       <ThemedView style={styles.field}>
         <ThemedText style={styles.label}>نوع المنصة</ThemedText>
-        <TextInput style={styles.input} value={platformType} onChangeText={setPlatformType} placeholder="مثال: Messaging, Accounting" placeholderTextColor="#999" />
+        <TextInput style={styles.input} value={platformType} onChangeText={setPlatformType} placeholder="مثال: Messaging, Accounting" placeholderTextColor="#999" accessibilityLabel="نوع المنصة" />
       </ThemedView>
 
       <ProtocolSelector options={PROTOCOLS} selected={protocol} onSelect={setProtocol} label="بروتوكول الاتصال" />
 
       <ThemedView style={styles.field}>
         <ThemedText style={styles.label}>عنوان URL</ThemedText>
-        <TextInput style={styles.input} value={endpointUrl} onChangeText={setEndpointUrl} placeholder="https://api.example.com/endpoint" placeholderTextColor="#999" autoCapitalize="none" />
+        <TextInput style={styles.input} value={endpointUrl} onChangeText={setEndpointUrl} placeholder="https://api.example.com/endpoint" placeholderTextColor="#999" autoCapitalize="none" accessibilityLabel="عنوان URL" />
       </ThemedView>
 
       {protocol === 'REST' && (
@@ -239,11 +250,11 @@ export default function AddConnectorScreen() {
         <>
           <ThemedView style={styles.field}>
             <ThemedText style={styles.label}>API Key</ThemedText>
-            <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="your-api-key" placeholderTextColor="#999" />
+            <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="your-api-key" placeholderTextColor="#999" secureTextEntry accessibilityLabel="مفتاح API" />
           </ThemedView>
           <ThemedView style={styles.field}>
             <ThemedText style={styles.label}>اسم Header (اختياري)</ThemedText>
-            <TextInput style={styles.input} value={apiKeyHeader} onChangeText={setApiKeyHeader} placeholder="X-API-Key" placeholderTextColor="#999" />
+            <TextInput style={styles.input} value={apiKeyHeader} onChangeText={setApiKeyHeader} placeholder="X-API-Key" placeholderTextColor="#999" accessibilityLabel="اسم Header" />
           </ThemedView>
         </>
       )}
@@ -252,11 +263,11 @@ export default function AddConnectorScreen() {
         <>
           <ThemedView style={styles.field}>
             <ThemedText style={styles.label}>اسم المستخدم</ThemedText>
-            <TextInput style={styles.input} value={username} onChangeText={setUsername} placeholder="username" placeholderTextColor="#999" />
+            <TextInput style={styles.input} value={username} onChangeText={setUsername} placeholder="username" placeholderTextColor="#999" accessibilityLabel="اسم المستخدم" />
           </ThemedView>
           <ThemedView style={styles.field}>
             <ThemedText style={styles.label}>كلمة المرور</ThemedText>
-            <TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="password" placeholderTextColor="#999" secureTextEntry />
+            <TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="password" placeholderTextColor="#999" secureTextEntry accessibilityLabel="كلمة المرور" />
           </ThemedView>
         </>
       )}
@@ -264,7 +275,7 @@ export default function AddConnectorScreen() {
       {authType === 'BEARER' && (
         <ThemedView style={styles.field}>
           <ThemedText style={styles.label}>Token</ThemedText>
-          <TextInput style={styles.input} value={token} onChangeText={setToken} placeholder="Bearer token" placeholderTextColor="#999" />
+          <TextInput style={styles.input} value={token} onChangeText={setToken} placeholder="Bearer token" placeholderTextColor="#999" secureTextEntry accessibilityLabel="Bearer Token" />
         </ThemedView>
       )}
 
@@ -272,25 +283,25 @@ export default function AddConnectorScreen() {
         <>
           <ThemedView style={styles.field}>
             <ThemedText style={styles.label}>Token URL</ThemedText>
-            <TextInput style={styles.input} value={token || ''} onChangeText={v => setToken(v)} placeholder="https://provider.com/oauth/token" placeholderTextColor="#999" autoCapitalize="none" />
+            <TextInput style={styles.input} value={token || ''} onChangeText={v => setToken(v)} placeholder="https://provider.com/oauth/token" placeholderTextColor="#999" autoCapitalize="none" accessibilityLabel="رابط Token" />
           </ThemedView>
           <ThemedView style={styles.field}>
             <ThemedText style={styles.label}>Client ID</ThemedText>
-            <TextInput style={styles.input} value={username} onChangeText={setUsername} placeholder="your-client-id" placeholderTextColor="#999" autoCapitalize="none" />
+            <TextInput style={styles.input} value={username} onChangeText={setUsername} placeholder="your-client-id" placeholderTextColor="#999" autoCapitalize="none" accessibilityLabel="Client ID" />
           </ThemedView>
           <ThemedView style={styles.field}>
             <ThemedText style={styles.label}>Client Secret</ThemedText>
-            <TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="your-client-secret" placeholderTextColor="#999" secureTextEntry />
+            <TextInput style={styles.input} value={password} onChangeText={setPassword} placeholder="your-client-secret" placeholderTextColor="#999" secureTextEntry accessibilityLabel="Client Secret" />
           </ThemedView>
           <ThemedView style={styles.field}>
             <ThemedText style={styles.label}>Scope (اختياري)</ThemedText>
-            <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="read,write" placeholderTextColor="#999" autoCapitalize="none" />
+            <TextInput style={styles.input} value={apiKey} onChangeText={setApiKey} placeholder="read,write" placeholderTextColor="#999" autoCapitalize="none" accessibilityLabel="Scope" />
           </ThemedView>
         </>
       )}
 
       <View style={styles.formActions}>
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={saving} accessibilityLabel={isEdit ? 'تحديث الاتصال' : 'حفظ الاتصال'} accessibilityRole="button">
           <ThemedText style={styles.saveBtnText}>{saving ? 'جارٍ الحفظ...' : isEdit ? 'تحديث الاتصال' : 'حفظ الاتصال'}</ThemedText>
         </TouchableOpacity>
       </View>

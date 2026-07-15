@@ -20,6 +20,8 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
 } as IconMapping;
 
+const FALLBACK_ICON = 'help-outline';
+
 /**
  * An icon component that uses native SF Symbols on iOS, and Material Icons on Android and web.
  * This ensures a consistent look across platforms, and optimal resource usage.
@@ -37,5 +39,6 @@ export function IconSymbol({
   style?: StyleProp<TextStyle>;
   weight?: SymbolWeight;
 }) {
-  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
+  const iconName = MAPPING[name] || FALLBACK_ICON;
+  return <MaterialIcons color={color} size={size} name={iconName} style={style} />;
 }

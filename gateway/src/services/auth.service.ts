@@ -7,9 +7,30 @@ import { queryOne, queryAll, execute } from '../db';
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
   console.error('FATAL: JWT_SECRET environment variable is not set.');
-  process.exit(1);
+  if (process.env.NODE_ENV === 'production') {
+    process.exit(1);
+  }
 }
-const JWT_EXPIRES = '30d';
+
+const JWT_EXPIRES = '1h';
+const JWT_REFRESH_EXPIRES = '7d';
+
+// ─── Token Blacklist (in-memory, cleared on restart) ──────
+const tokenBlacklist = new Set<string>();
+
+// Cleanup expired tokens every 10 minutes
+setInterval(() => {
+  for (const token of tokenBlacklist) {
+    try {
+      const decoded = jwt.decode(token) as any;
+      if (decoded && decoded.exp && decoded.exp * 1000 < Date.now()) {
+        tokenBlacklist.delete(token);
+      }
+    } catch {
+      tokenBlacklist.delete(token);
+    }
+  }
+}, 600000);
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
@@ -34,20 +55,28 @@ export interface User {
 
 export const authService = {
   async register(email: string, password: string, name: string) {
-    const existing = await queryOne('SELECT id FROM users WHERE email = ?', [email]);
+    const trimmedName = name.trim();
+    if (trimmedName.length < 2) {
+      throw new Error('الاسم يجب أن يكون حرفين على الأقل');
+    }
+
+    const existing = await queryOne('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
     if (existing) throw new Error('البريد الإلكتروني مسجل مسبقاً');
 
     const id = crypto.randomUUID();
     const hashed = await hashPassword(password);
 
-    await execute('INSERT INTO users (id, email, name, password) VALUES (?, ?, ?, ?)', [id, email, name, hashed]);
+    await execute(
+      'INSERT INTO users (id, email, name, password) VALUES (?, ?, ?, ?)',
+      [id, email.toLowerCase(), trimmedName, hashed]
+    );
     await execute('INSERT INTO subscriptions (user_id) VALUES (?)', [id]);
 
-    return { id, email, name };
+    return { id, email: email.toLowerCase(), name: trimmedName };
   },
 
   async login(email: string, password: string) {
-    const user = await queryOne('SELECT * FROM users WHERE email = ?', [email]);
+    const user = await queryOne('SELECT * FROM users WHERE email = ?', [email.toLowerCase()]);
     if (!user) throw new Error('البريد الإلكتروني غير صحيح');
 
     if (!user.is_active) throw new Error('الحساب موقوف');
@@ -55,9 +84,47 @@ export const authService = {
     const valid = await comparePassword(password, user.password);
     if (!valid) throw new Error('كلمة المرور غير صحيحة');
 
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET!,
+      { expiresIn: JWT_EXPIRES }
+    );
 
-    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    const refreshToken = jwt.sign(
+      { id: user.id, type: 'refresh' },
+      JWT_SECRET!,
+      { expiresIn: JWT_REFRESH_EXPIRES }
+    );
+
+    return {
+      token,
+      refreshToken,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    };
+  },
+
+  async refresh(refreshToken: string) {
+    try {
+      const decoded = jwt.verify(refreshToken, JWT_SECRET!) as { id: string; type: string };
+      if (decoded.type !== 'refresh') {
+        throw new Error('Invalid refresh token');
+      }
+
+      const user = await queryOne('SELECT * FROM users WHERE id = ?', [decoded.id]);
+      if (!user || !user.is_active) {
+        throw new Error('User not found or inactive');
+      }
+
+      const token = jwt.sign(
+        { id: user.id, email: user.email, role: user.role },
+        JWT_SECRET!,
+        { expiresIn: JWT_EXPIRES }
+      );
+
+      return { token };
+    } catch {
+      throw new Error('Invalid or expired refresh token');
+    }
   },
 
   async googleLogin(idToken: string) {
@@ -97,9 +164,23 @@ export const authService = {
 
     if (!user || !user.is_active) throw new Error('الحساب موقوف');
 
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: user.role },
+      JWT_SECRET!,
+      { expiresIn: JWT_EXPIRES }
+    );
 
-    return { token, user: { id: user.id, email: user.email, name: user.name, role: user.role } };
+    const refreshToken = jwt.sign(
+      { id: user.id, type: 'refresh' },
+      JWT_SECRET!,
+      { expiresIn: JWT_REFRESH_EXPIRES }
+    );
+
+    return {
+      token,
+      refreshToken,
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    };
   },
 
   async getProfile(userId: string) {
@@ -111,11 +192,16 @@ export const authService = {
   },
 
   verifyToken(token: string): { id: string; email: string; role: string } | null {
+    if (tokenBlacklist.has(token)) return null;
     try {
-      return jwt.verify(token, JWT_SECRET) as any;
+      return jwt.verify(token, JWT_SECRET!) as { id: string; email: string; role: string };
     } catch {
       return null;
     }
+  },
+
+  revokeToken(token: string) {
+    tokenBlacklist.add(token);
   },
 
   async toggleUserStatus(userId: string, isActive: boolean) {
@@ -130,20 +216,23 @@ export const authService = {
   },
 
   async getStats() {
-    const users = await queryOne('SELECT COUNT(*) as total FROM users');
-    const active = await queryOne('SELECT COUNT(*) as total FROM users WHERE is_active = true');
-    const messages = await queryOne('SELECT COUNT(*) as total FROM message_logs');
-    const webhooks = await queryOne('SELECT COUNT(*) as total FROM webhook_events');
-    const connectors = await queryOne('SELECT COUNT(*) as total FROM connectors');
-    const devices = await queryOne('SELECT COUNT(*) as total FROM devices');
+    const row = await queryOne(`
+      SELECT
+        (SELECT COUNT(*) FROM users) as totalUsers,
+        (SELECT COUNT(*) FROM users WHERE is_active = 1) as activeUsers,
+        (SELECT COUNT(*) FROM message_logs) as totalMessages,
+        (SELECT COUNT(*) FROM webhook_events) as totalWebhooks,
+        (SELECT COUNT(*) FROM connectors) as totalConnectors,
+        (SELECT COUNT(*) FROM devices) as totalDevices
+    `);
 
     return {
-      totalUsers: users?.total || 0,
-      activeUsers: active?.total || 0,
-      totalMessages: messages?.total || 0,
-      totalWebhooks: webhooks?.total || 0,
-      totalConnectors: connectors?.total || 0,
-      totalDevices: devices?.total || 0,
+      totalUsers: row?.totalUsers || 0,
+      activeUsers: row?.activeUsers || 0,
+      totalMessages: row?.totalMessages || 0,
+      totalWebhooks: row?.totalWebhooks || 0,
+      totalConnectors: row?.totalConnectors || 0,
+      totalDevices: row?.totalDevices || 0,
     };
   },
 
@@ -188,21 +277,36 @@ export const authService = {
     osVersion?: string;
     appVersion?: string;
   }) {
-    let device = deviceInfo.serialNumber
-      ? await queryOne('SELECT * FROM devices WHERE user_id = ? AND serial_number = ?', [userId, deviceInfo.serialNumber])
-      : null;
-
-    if (device) {
-      await execute(
-        'UPDATE devices SET ip_address = ?, device_name = ?, device_model = ?, os_version = ?, app_version = ?, last_active_at = NOW() WHERE id = ?',
-        [deviceInfo.ipAddress || device.ip_address, deviceInfo.deviceName || device.device_name,
-         deviceInfo.deviceModel || device.device_model, deviceInfo.osVersion || device.os_version,
-         deviceInfo.appVersion || device.app_version, device.id]
-      );
-      return { id: device.id, apiKey: device.api_key, isNew: false };
+    if (deviceInfo.serialNumber) {
+      const device = await queryOne('SELECT * FROM devices WHERE user_id = ? AND serial_number = ?', [userId, deviceInfo.serialNumber]);
+      if (device) {
+        await execute(
+          'UPDATE devices SET ip_address = ?, device_name = ?, device_model = ?, os_version = ?, app_version = ?, last_active_at = NOW() WHERE id = ?',
+          [deviceInfo.ipAddress || device.ip_address, deviceInfo.deviceName || device.device_name,
+           deviceInfo.deviceModel || device.device_model, deviceInfo.osVersion || device.os_version,
+           deviceInfo.appVersion || device.app_version, device.id]
+        );
+        return { id: device.id, apiKey: device.api_key, isNew: false };
+      }
     }
 
-    return { ...await this.registerDevice(userId, deviceInfo), isNew: true };
+    try {
+      return { ...await this.registerDevice(userId, deviceInfo), isNew: true };
+    } catch (err: any) {
+      if (err.message?.includes('UNIQUE constraint') && deviceInfo.serialNumber) {
+        const device = await queryOne('SELECT * FROM devices WHERE user_id = ? AND serial_number = ?', [userId, deviceInfo.serialNumber]);
+        if (device) {
+          await execute(
+            'UPDATE devices SET ip_address = ?, device_name = ?, device_model = ?, os_version = ?, app_version = ?, last_active_at = NOW() WHERE id = ?',
+            [deviceInfo.ipAddress || device.ip_address, deviceInfo.deviceName || device.device_name,
+             deviceInfo.deviceModel || device.device_model, deviceInfo.osVersion || device.os_version,
+             deviceInfo.appVersion || device.app_version, device.id]
+          );
+          return { id: device.id, apiKey: device.api_key, isNew: false };
+        }
+      }
+      throw err;
+    }
   },
 
   async getApiKeyByUser(userId: string) {

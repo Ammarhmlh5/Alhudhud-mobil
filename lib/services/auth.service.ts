@@ -1,101 +1,103 @@
 import { api } from '../apiClient';
-import { collectDeviceInfo, storeApiKey, clearApiKey } from '../utils/device-info';
+import { collectDeviceInfo } from '../utils/device-info';
+import { supabaseIntegrationService } from './supabase-integration.service';
+import type { AuthResponse, User } from '../types';
 
 export class AuthService {
-    static async login(email: string, password: string) {
-        let deviceInfo = null;
-        try { deviceInfo = await collectDeviceInfo(); } catch {}
+  static async login(email: string, password: string): Promise<AuthResponse> {
+    let deviceInfo = null;
+    try { deviceInfo = await collectDeviceInfo(); } catch (error) { console.debug('Device info collection failed:', error); }
 
-        const response = await api.post('/auth/login', { email, password, deviceInfo });
+    const data = await api.post<AuthResponse>('/auth/login', { email, password, deviceInfo });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'فشل تسجيل الدخول');
-        }
-
-        const data = await response.json();
-        if (data.token) {
-            await api.setToken(data.token);
-        }
-        if (data.apiKey) {
-            await storeApiKey(data.apiKey);
-        }
-        return data;
+    if (data.token) {
+      await api.setToken(data.token);
+    }
+    if (data.apiKey) {
+      await api.setApiKey(data.apiKey);
     }
 
-    static async googleLogin(idToken: string) {
-        let deviceInfo = null;
-        try { deviceInfo = await collectDeviceInfo(); } catch {}
-
-        const response = await api.post('/auth/google', { idToken, deviceInfo });
-
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.message || 'فشل تسجيل الدخول بحساب Google');
-        }
-
-        const data = await response.json();
-        if (data.token) {
-            await api.setToken(data.token);
-        }
-        if (data.apiKey) {
-            await storeApiKey(data.apiKey);
-        }
-        return data;
+    try {
+      await supabaseIntegrationService.signInAndRegister(email, password);
+    } catch (error) {
+      console.debug('[Auth] Supabase sync failed (non-critical):', error);
     }
 
-    static async register(userData: any) {
-        let deviceInfo = null;
-        try { deviceInfo = await collectDeviceInfo(); } catch {}
+    return data;
+  }
 
-        const response = await api.post('/auth/register', { ...userData, deviceInfo });
+  static async googleLogin(idToken: string): Promise<AuthResponse> {
+    let deviceInfo = null;
+    try { deviceInfo = await collectDeviceInfo(); } catch (error) { console.debug('Device info collection failed:', error); }
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.message || 'فشل إنشاء الحساب');
-        }
+    const data = await api.post<AuthResponse>('/auth/google', { idToken, deviceInfo });
 
-        const data = await response.json();
-        if (data.apiKey) {
-            await storeApiKey(data.apiKey);
-        }
-        return data;
+    if (data.token) {
+      await api.setToken(data.token);
+    }
+    if (data.apiKey) {
+      await api.setApiKey(data.apiKey);
     }
 
-    static async logout() {
-        await api.setToken(null);
-        await clearApiKey();
+    try {
+      await supabaseIntegrationService.registerDevice();
+    } catch (error) {
+      console.debug('[Auth] Supabase device registration failed (non-critical):', error);
     }
 
-    static async getProfile() {
-        try {
-            const response = await api.get('/auth/profile');
-            if (response.status === 401) {
-                await api.setToken(null);
-                return null;
-            }
-            if (!response.ok) {
-                return null;
-            }
-            return await response.json();
-        } catch {
-            return null;
-        }
+    return data;
+  }
+
+  static async register(userData: { email: string; password: string; name: string }): Promise<AuthResponse> {
+    let deviceInfo = null;
+    try { deviceInfo = await collectDeviceInfo(); } catch (error) { console.debug('Device info collection failed:', error); }
+
+    const data = await api.post<AuthResponse>('/auth/register', { ...userData, deviceInfo });
+
+    if (data.apiKey) {
+      await api.setApiKey(data.apiKey);
     }
 
-    static async requestApiKey() {
-        const response = await api.post('/auth/request-api-key', {});
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}));
-            throw new Error(error.message || 'فشل طلب المفتاح');
-        }
-        return response.json();
+    try {
+      await supabaseIntegrationService.signInAndRegister(userData.email, userData.password);
+    } catch {
+      // Ignore Supabase registration failures
     }
 
-    static async getApiKey() {
-        const response = await api.get('/auth/api-key');
-        if (!response.ok) return null;
-        const data = await response.json();
-        return data.apiKey || null;
+    return data;
+  }
+
+  static async logout(): Promise<void> {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Ignore — client-side logout is sufficient
     }
+    await api.setToken(null);
+    await api.setApiKey(null);
+  }
+
+  static async getProfile(): Promise<(User & { subscription: any }) | null> {
+    try {
+      return await api.get<User & { subscription: any }>('/auth/profile');
+    } catch (error: any) {
+      if (error?.message?.includes('401')) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  static async requestApiKey(): Promise<{ apiKey: string; message: string }> {
+    return api.post<{ apiKey: string; message: string }>('/auth/request-api-key', {});
+  }
+
+  static async getApiKey(): Promise<string | null> {
+    try {
+      const data = await api.get<{ apiKey: string | null }>('/auth/api-key');
+      return data.apiKey || null;
+    } catch {
+      return null;
+    }
+  }
 }

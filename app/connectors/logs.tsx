@@ -1,12 +1,13 @@
-import { StyleSheet, ScrollView, TouchableOpacity, View, RefreshControl } from 'react-native';
-import { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, FlatList, TouchableOpacity, View, RefreshControl } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { connectorManager } from '@/lib/connectors/manager';
+import { MessageLog } from '@/lib/connectors/types';
 
 export default function LogsScreen() {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<MessageLog[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'ALL' | 'SUCCESS' | 'FAILED'>('ALL');
 
@@ -23,7 +24,10 @@ export default function LogsScreen() {
     setRefreshing(false);
   }, [loadLogs]);
 
-  const filtered = filter === 'ALL' ? logs : logs.filter(l => l.status === filter);
+  const filtered = useMemo(() =>
+    filter === 'ALL' ? logs : logs.filter(l => l.status === filter),
+    [logs, filter]
+  );
 
   const getLogColor = (status: string) => {
     switch (status) {
@@ -41,12 +45,38 @@ export default function LogsScreen() {
     }
   };
 
+  const renderLogItem = useCallback(({ item }: { item: MessageLog }) => (
+    <ThemedView style={[styles.logCard, { borderLeftColor: getLogColor(item.status), borderLeftWidth: 3 }]}>
+      <View style={styles.logHeader}>
+        <View style={[styles.logBadge, { backgroundColor: getLogBg(item.status) }]}>
+          <ThemedText style={{ fontSize: 11, fontWeight: '600', color: getLogColor(item.status) }}>
+            {item.status}
+          </ThemedText>
+        </View>
+        <View style={[styles.logBadge, { backgroundColor: '#E3F2FD' }]}>
+          <ThemedText style={{ fontSize: 11, color: '#2196F3' }}>
+            {item.direction === 'SENT' ? 'إرسال' : 'استقبال'}
+          </ThemedText>
+        </View>
+        <ThemedText style={{ fontSize: 11, opacity: 0.4, marginLeft: 'auto' }}>
+          {item.payload ? `${item.payload.length} B` : '0 B'}
+        </ThemedText>
+      </View>
+      <ThemedText style={{ fontSize: 12, opacity: 0.6 }}>
+        {new Date(item.createdAt).toLocaleString('ar-SA')}
+      </ThemedText>
+      {item.errorMessage && (
+        <ThemedText style={{ fontSize: 12, color: '#F44336', marginTop: 4 }}>
+          {item.errorMessage}
+        </ThemedText>
+      )}
+    </ThemedView>
+  ), []);
+
+  const keyExtractor = useCallback((item: MessageLog, index: number) => item.id || `log-${index}-${item.createdAt || ''}`, []);
+
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-    >
+    <View style={styles.container}>
       <ThemedText type="title" style={{ marginBottom: 4 }}>سجل الرسائل</ThemedText>
       <ThemedText style={styles.subtitle}>جميع عمليات الإرسال والاستقبال</ThemedText>
 
@@ -56,6 +86,8 @@ export default function LogsScreen() {
             key={f}
             style={[styles.filterBtn, filter === f && styles.filterActive]}
             onPress={() => setFilter(f)}
+            accessibilityLabel={f === 'ALL' ? 'الكل' : f === 'SUCCESS' ? 'ناجح' : 'فاشل'}
+            accessibilityRole="button"
           >
             <ThemedText style={[styles.filterText, filter === f && styles.filterTextActive]}>
               {f === 'ALL' ? 'الكل' : f === 'SUCCESS' ? 'ناجح' : 'فاشل'}
@@ -65,47 +97,29 @@ export default function LogsScreen() {
         <ThemedText style={styles.count}>{filtered.length}</ThemedText>
       </View>
 
-      {filtered.length === 0 ? (
-        <ThemedView style={styles.emptyState}>
-          <IconSymbol name="tray.fill" size={48} color="#ccc" />
-          <ThemedText style={{ opacity: 0.5, marginTop: 12 }}>لا توجد رسائل</ThemedText>
-        </ThemedView>
-      ) : (
-        filtered.map((log, i) => (
-          <ThemedView key={log.id || i} style={[styles.logCard, { borderLeftColor: getLogColor(log.status), borderLeftWidth: 3 }]}>
-            <View style={styles.logHeader}>
-              <View style={[styles.logBadge, { backgroundColor: getLogBg(log.status) }]}>
-                <ThemedText style={{ fontSize: 11, fontWeight: '600', color: getLogColor(log.status) }}>
-                  {log.status}
-                </ThemedText>
-              </View>
-              <View style={[styles.logBadge, { backgroundColor: '#E3F2FD' }]}>
-                <ThemedText style={{ fontSize: 11, color: '#2196F3' }}>
-                  {log.direction === 'SENT' ? 'إرسال' : 'استقبال'}
-                </ThemedText>
-              </View>
-              <ThemedText style={{ fontSize: 11, opacity: 0.4, marginLeft: 'auto' }}>
-                {log.payload ? `${log.payload.length} B` : '0 B'}
-              </ThemedText>
-            </View>
-            <ThemedText style={{ fontSize: 12, opacity: 0.6 }}>
-              {new Date(log.created_at).toLocaleString('ar-SA')}
-            </ThemedText>
-            {log.error_message && (
-              <ThemedText style={{ fontSize: 12, color: '#F44336', marginTop: 4 }}>
-                {log.error_message}
-              </ThemedText>
-            )}
+      <FlatList
+        data={filtered}
+        keyExtractor={keyExtractor}
+        renderItem={renderLogItem}
+        contentContainerStyle={styles.content}
+        ListEmptyComponent={
+          <ThemedView style={styles.emptyState}>
+            <IconSymbol name="tray.fill" size={48} color="#ccc" />
+            <ThemedText style={{ opacity: 0.5, marginTop: 12 }}>لا توجد رسائل</ThemedText>
           </ThemedView>
-        ))
-      )}
-    </ScrollView>
+        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        initialNumToRender={20}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  container: { flex: 1, padding: 16 },
+  content: { gap: 12, paddingBottom: 40 },
   subtitle: { fontSize: 13, opacity: 0.5, marginBottom: 8 },
   filterRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   filterBtn: {

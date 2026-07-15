@@ -18,23 +18,40 @@ export default function RegisterScreen() {
     const [showApiKeyModal, setShowApiKeyModal] = useState(false);
     const [newApiKey, setNewApiKey] = useState('');
 
+    const validatePassword = (pwd: string): string[] => {
+        const errors: string[] = [];
+        if (pwd.length < 8) errors.push('8 أحرف على الأقل');
+        if (!/[A-Z]/.test(pwd)) errors.push('حرف كبير واحد على الأقل');
+        if (!/[0-9]/.test(pwd)) errors.push('رقم واحد على الأقل');
+        return errors;
+    };
+
     const handleRegister = async () => {
-        if (!name || !email || !password || !confirmPassword) {
+        if (!name.trim() || !email || !password || !confirmPassword) {
             Alert.alert('خطأ', 'يرجى تعبئة جميع الحقول');
             return;
         }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            Alert.alert('خطأ', 'يرجى إدخال بريد إلكتروني صحيح');
+            return;
+        }
+
         if (password !== confirmPassword) {
             Alert.alert('خطأ', 'كلمتا المرور غير متطابقتين');
             return;
         }
-        if (password.length < 6) {
-            Alert.alert('خطأ', 'كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+
+        const passwordErrors = validatePassword(password);
+        if (passwordErrors.length > 0) {
+            Alert.alert('خطأ', `كلمة المرور يجب أن تحتوي على:\n• ${passwordErrors.join('\n• ')}`);
             return;
         }
 
         setLoading(true);
         try {
-            const result = await register(name, email, password);
+            const result = await register(name.trim(), email, password);
             if (result.apiKey) {
                 setNewApiKey(result.apiKey);
                 setShowApiKeyModal(true);
@@ -78,6 +95,7 @@ export default function RegisterScreen() {
                         onChangeText={setName}
                         autoCapitalize="words"
                         textAlign="right"
+                        accessibilityLabel="الاسم الكامل"
                     />
 
                     <ThemedText style={styles.label}>البريد الإلكتروني</ThemedText>
@@ -90,17 +108,19 @@ export default function RegisterScreen() {
                         keyboardType="email-address"
                         autoCapitalize="none"
                         textAlign="right"
+                        accessibilityLabel="البريد الإلكتروني"
                     />
 
                     <ThemedText style={styles.label}>كلمة المرور</ThemedText>
                     <TextInput
                         style={styles.input}
-                        placeholder="6 أحرف على الأقل"
+                        placeholder="8 أحرف على الأقل"
                         placeholderTextColor="#999"
                         value={password}
                         onChangeText={setPassword}
                         secureTextEntry
                         textAlign="right"
+                        accessibilityLabel="كلمة المرور"
                     />
 
                     <ThemedText style={styles.label}>تأكيد كلمة المرور</ThemedText>
@@ -112,12 +132,15 @@ export default function RegisterScreen() {
                         onChangeText={setConfirmPassword}
                         secureTextEntry
                         textAlign="right"
+                        accessibilityLabel="تأكيد كلمة المرور"
                     />
 
                     <TouchableOpacity
                         style={[styles.button, loading && styles.buttonDisabled]}
                         onPress={handleRegister}
                         disabled={loading}
+                        accessibilityLabel="إنشاء الحساب"
+                        accessibilityRole="button"
                     >
                         {loading ? (
                             <ActivityIndicator color="#fff" />
@@ -129,7 +152,7 @@ export default function RegisterScreen() {
 
                 <ThemedView style={styles.footer}>
                     <ThemedText>لديك حساب بالفعل؟ </ThemedText>
-                    <TouchableOpacity onPress={() => router.back()}>
+                    <TouchableOpacity onPress={() => router.back()} accessibilityLabel="تسجيل الدخول" accessibilityRole="button">
                         <ThemedText style={styles.footerLink}>تسجيل الدخول</ThemedText>
                     </TouchableOpacity>
                 </ThemedView>

@@ -165,6 +165,7 @@
       <a href="#" data-page="webhooks">&#x1F4E5; Webhooks</a>
       <a href="#" data-page="logs">&#x1F4DC; السجلات</a>
       <a href="#" data-page="devices">&#x1F4F1; الأجهزة</a>
+      <a href="#" data-page="pair">&#x1F4F1; ربط هاتف</a>
       <a href="#" data-page="migration">&#x1F504; الترحيل</a>
     </nav>
     <div class="sidebar-footer">
@@ -269,6 +270,74 @@
           <table>
             <thead><tr><th>المستخدم</th><th>الجهاز</th><th>IP</th><th>Serial</th><th>النظام</th><th>آخر نشاط</th><th>الإجراءات</th></tr></thead>
             <tbody id="devicesTable"><tr><td colspan="7" class="empty">جاري التحميل...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pairing -->
+    <div id="page-pair" class="page">
+      <h2>&#x1F517; ربط هاتف جديد</h2>
+      <div class="card" style="margin-bottom:20px">
+        <div class="card-header"><h3>إنشاء كود ربط</h3></div>
+        <div class="card-body" style="padding:30px;text-align:center">
+          <div id="pairIdle">
+            <p style="color:var(--text2);margin-bottom:20px;font-size:14px;line-height:2">
+              لإنشاء كود ربط جديد، اضغط الزر أدناه.<br>
+              سيتم إنشاء كود صالح لمدة <strong>5 دقائق</strong> فقط.
+            </p>
+            <button class="btn btn-primary" style="width:auto;padding:14px 40px;font-size:16px" onclick="generatePairCode()">
+              &#x1F4F1; إنشاء كود ربط
+            </button>
+          </div>
+          <div id="pairLoading" style="display:none">
+            <div class="spinner" style="width:32px;height:32px"></div>
+            <p style="margin-top:12px;color:var(--text2)">جاري إنشاء الكود...</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="pairActive" class="card" style="display:none;margin-bottom:20px">
+        <div class="card-header">
+          <h3>كود الربط</h3>
+          <span id="pairCountdown" class="badge badge-warning">5:00</span>
+        </div>
+        <div class="card-body" style="padding:30px;text-align:center">
+          <div style="margin-bottom:20px">
+            <img id="pairQRImage" src="" alt="QR Code" style="width:220px;height:220px;border-radius:12px;background:#fff;padding:8px" />
+          </div>
+          <div style="margin-bottom:16px">
+            <p style="color:var(--text2);font-size:13px;margin-bottom:8px">أو أدخل الكود يدوياً:</p>
+            <div style="display:inline-flex;align-items:center;gap:8px;background:var(--surface2);padding:12px 24px;border-radius:8px;font-family:monospace;font-size:28px;letter-spacing:8px;font-weight:700;color:var(--primary)" id="pairCodeDisplay">------
+          </div>
+          <button class="btn btn-sm" style="margin-top:8px;background:var(--surface2);color:var(--text)" onclick="copyPairCode()">&#x1F4CB; نسخ الكود</button>
+          </div>
+          <p style="color:var(--text2);font-size:13px;margin-bottom:20px">
+            افتح تطبيق الهاتف &rarr; الإعدادات &rarr; إضافة اتصال &rarr; مسح QR للربط
+          </p>
+          <a href="alhudhud://pair" style="display:inline-block;margin-bottom:16px;padding:8px 16px;background:var(--surface2);border-radius:8px;color:var(--primary);font-size:13px;text-decoration:none;border:1px solid var(--border)">&#x1F517; افتح التطبيق مباشرة</a>
+          <div id="pairStatus" style="margin-top:16px">
+            <span class="status-dot status-unknown"></span>
+            <span style="color:var(--text2);font-size:14px" id="pairStatusText">في انتظار الربط...</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="pairSuccess" class="card" style="display:none">
+        <div class="card-body" style="padding:30px;text-align:center">
+          <div style="font-size:48px;margin-bottom:12px">&#x2705;</div>
+          <h3 style="margin-bottom:8px;color:var(--success)">تم الربط بنجاح!</h3>
+          <p style="color:var(--text2);font-size:14px;margin-bottom:20px">تم ربط الهاتف بحسابك بنجاح</p>
+          <button class="btn btn-success" onclick="resetPairing()">إنشاء كود جديد</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>الأجهزة المربوطة</h3></div>
+        <div class="card-body">
+          <table>
+            <thead><tr><th>الجهاز</th><th>النظام</th><th>آخر نشاط</th><th>الحالة</th></tr></thead>
+            <tbody id="pairedDevicesTable"><tr><td colspan="4" class="empty">جاري التحميل...</td></tr></tbody>
           </table>
         </div>
       </div>
@@ -571,9 +640,211 @@ document.querySelectorAll('.sidebar nav a').forEach(a => {
     else if (page === 'webhooks') loadWebhooks();
     else if (page === 'logs') loadLogs();
     else if (page === 'devices') loadDevices();
+    else if (page === 'pair') loadPairingPage();
     else if (page === 'migration') loadMigration();
   });
 });
+
+// --- Pairing ---
+let pairPollInterval = null;
+let pairCountdownInterval = null;
+let pairExpiresAt = null;
+let currentPairCode = null;
+let pairWs = null;
+
+function connectPairWebSocket() {
+  if (pairWs) return;
+  try {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    pairWs = new WebSocket(`${wsProtocol}//${window.location.host}/ws?token=${token}`);
+    pairWs.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'DEVICE_PAIRED') {
+          if (pairPollInterval) clearInterval(pairPollInterval);
+          if (pairCountdownInterval) clearInterval(pairCountdownInterval);
+          document.getElementById('pairActive').style.display = 'none';
+          document.getElementById('pairSuccess').style.display = 'block';
+          document.getElementById('pairCountdown').className = 'badge badge-success';
+          document.getElementById('pairCountdown').textContent = 'مكتمل';
+          showToast('تم الربط بنجاح من الهاتف!');
+          loadPairedDevices();
+          loadDevices();
+        } else if (msg.type === 'DEVICE_UNPAIRED') {
+          loadPairedDevices();
+          loadDevices();
+          showToast('تم إلغاء الربط من الهاتف');
+        }
+      } catch {}
+    };
+    pairWs.onclose = () => { pairWs = null; };
+    pairWs.onerror = () => { pairWs = null; };
+  } catch {}
+}
+
+function disconnectPairWebSocket() {
+  if (pairWs) {
+    try { pairWs.close(); } catch {}
+    pairWs = null;
+  }
+}
+
+function copyPairCode() {
+  if (currentPairCode) {
+    navigator.clipboard.writeText(currentPairCode).then(() => showToast('تم نسخ الكود')).catch(() => showToast('فشل النسخ'));
+  }
+}
+
+async function generatePairCode() {
+  document.getElementById('pairIdle').style.display = 'none';
+  document.getElementById('pairLoading').style.display = 'block';
+  document.getElementById('pairActive').style.display = 'none';
+  document.getElementById('pairSuccess').style.display = 'none';
+
+  try {
+    const res = await fetch(`${API}/api/pairing/generate`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.message || 'فشل إنشاء الكود');
+
+    currentPairCode = data.code;
+    const qrPayload = JSON.stringify({
+      type: 'alhudhud_pair',
+      gateway: data.gatewayUrl,
+      code: data.code,
+      name: data.userName,
+      email: data.userEmail
+    });
+
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrPayload)}&bgcolor=1e293b&color=f1f5f9&margin=10`;
+
+    document.getElementById('pairQRImage').src = qrUrl;
+    document.getElementById('pairCodeDisplay').textContent = data.code;
+
+    document.getElementById('pairActive').style.display = 'block';
+    document.getElementById('pairLoading').style.display = 'none';
+
+    pairExpiresAt = Date.now() + (data.expiresIn * 1000);
+    startPairCountdown();
+    startPairPolling(data.code);
+    connectPairWebSocket();
+
+    loadPairedDevices();
+  } catch (e) {
+    document.getElementById('pairIdle').style.display = 'block';
+    document.getElementById('pairLoading').style.display = 'none';
+    showToast('خطأ: ' + e.message);
+  }
+}
+
+function startPairCountdown() {
+  if (pairCountdownInterval) clearInterval(pairCountdownInterval);
+  pairCountdownInterval = setInterval(() => {
+    const remaining = Math.max(0, pairExpiresAt - Date.now());
+    const mins = Math.floor(remaining / 60000);
+    const secs = Math.floor((remaining % 60000) / 1000);
+    const el = document.getElementById('pairCountdown');
+    if (el) el.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+    if (remaining <= 0) {
+      clearInterval(pairCountdownInterval);
+      clearInterval(pairPollInterval);
+      document.getElementById('pairStatusText').textContent = 'انتهت صلاحية الكود';
+      document.getElementById('pairCountdown').textContent = 'منتهي';
+      document.getElementById('pairCountdown').className = 'badge badge-danger';
+    }
+  }, 1000);
+}
+
+function startPairPolling(code) {
+  if (pairPollInterval) clearInterval(pairPollInterval);
+  pairPollInterval = setInterval(async () => {
+    try {
+      const res = await fetch(`${API}/api/pairing/status/${code}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+
+      if (data.status === 'paired') {
+        clearInterval(pairPollInterval);
+        clearInterval(pairCountdownInterval);
+        document.getElementById('pairActive').style.display = 'none';
+        document.getElementById('pairSuccess').style.display = 'block';
+        document.getElementById('pairCountdown').className = 'badge badge-success';
+        document.getElementById('pairCountdown').textContent = 'مكتمل';
+        showToast('تم الربط بنجاح!');
+        loadPairedDevices();
+        loadDevices();
+      } else if (data.status === 'expired') {
+        clearInterval(pairPollInterval);
+        clearInterval(pairCountdownInterval);
+        document.getElementById('pairStatusText').textContent = 'انتهت صلاحية الكود - أنشئ كوداً جديداً';
+        document.getElementById('pairCountdown').textContent = 'منتهي';
+        document.getElementById('pairCountdown').className = 'badge badge-danger';
+      }
+    } catch {}
+  }, 3000);
+}
+
+function resetPairing() {
+  if (pairPollInterval) clearInterval(pairPollInterval);
+  if (pairCountdownInterval) clearInterval(pairCountdownInterval);
+  disconnectPairWebSocket();
+  currentPairCode = null;
+  document.getElementById('pairActive').style.display = 'none';
+  document.getElementById('pairSuccess').style.display = 'none';
+  document.getElementById('pairIdle').style.display = 'block';
+  document.getElementById('pairCountdown').className = 'badge badge-warning';
+}
+
+async function loadPairingPage() {
+  try {
+    const devices = await api('/api/devices');
+    const tbody = document.getElementById('pairedDevicesTable');
+    if (!devices || devices.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">لا توجد أجهزة مربوطة بعد - قم بربط هاتف من هنا</td></tr>';
+      return;
+    }
+    tbody.innerHTML = devices.map(d => {
+      const statusClass = d.is_active ? 'status-online' : 'status-offline';
+      return `
+        <tr>
+          <td><strong>${esc(d.device_name || '-')}</strong><br><small style="color:var(--text2)">${esc(d.device_model || '')}</small></td>
+          <td>${esc(d.os_name || '')} ${esc(d.os_version || '')}</td>
+          <td>${formatDate(d.last_active_at)}</td>
+          <td><span class="status-dot ${statusClass}"></span>${d.is_active ? 'نشط' : 'غير نشط'}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error('Failed to load paired devices:', e);
+  }
+}
+
+async function loadPairedDevices() {
+  try {
+    const devices = await api('/api/devices');
+    const tbody = document.getElementById('pairedDevicesTable');
+    if (!devices || devices.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">لا توجد أجهزة مربوطة بعد</td></tr>';
+      return;
+    }
+    tbody.innerHTML = devices.map(d => {
+      const statusClass = d.is_active ? 'status-online' : 'status-offline';
+      return `
+        <tr>
+          <td><strong>${esc(d.device_name || '-')}</strong><br><small style="color:var(--text2)">${esc(d.device_model || '')}</small></td>
+          <td>${esc(d.os_name || '')} ${esc(d.os_version || '')}</td>
+          <td>${formatDate(d.last_active_at)}</td>
+          <td><span class="status-dot ${statusClass}"></span>${d.is_active ? 'نشط' : 'غير نشط'}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch {}
+}
 
 // --- Helpers ---
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }

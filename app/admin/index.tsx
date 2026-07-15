@@ -80,14 +80,30 @@ export default function AdminScreen() {
       </View>
       <TouchableOpacity
         style={[styles.toggleBtn, { backgroundColor: item.is_active ? '#FFEBEE' : '#E8F5E9' }]}
-        onPress={async () => {
-          try {
-            await adminService.toggleUserStatus(item.id, !item.is_active);
-            loadData();
-          } catch (err: any) {
-            Alert.alert('خطأ', err.message);
-          }
+        onPress={() => {
+          const action = item.is_active ? 'إيقاف' : 'تفعيل';
+          Alert.alert(
+            `${action} المستخدم`,
+            `هل أنت متأكد من ${action} حساب "${item.name}"؟`,
+            [
+              { text: 'إلغاء', style: 'cancel' },
+              {
+                text: action,
+                style: item.is_active ? 'destructive' : 'default',
+                onPress: async () => {
+                  try {
+                    await adminService.toggleUserStatus(item.id, !item.is_active);
+                    loadData();
+                  } catch (err: any) {
+                    Alert.alert('خطأ', err.message);
+                  }
+                },
+              },
+            ]
+          );
         }}
+        accessibilityLabel={item.is_active ? 'إيقاف المستخدم' : 'تفعيل المستخدم'}
+        accessibilityRole="button"
       >
         <ThemedText style={{ fontSize: 13, color: item.is_active ? '#F44336' : '#4CAF50' }}>
           {item.is_active ? 'إيقاف' : 'تفعيل'}
@@ -138,6 +154,9 @@ export default function AdminScreen() {
             key={t.key}
             style={[styles.tab, tab === t.key && styles.tabActive]}
             onPress={() => setTab(t.key)}
+            accessibilityLabel={t.label}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === t.key }}
           >
             <IconSymbol name={t.icon as any} size={16} color={tab === t.key ? '#E6A23C' : '#999'} />
             <ThemedText style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</ThemedText>

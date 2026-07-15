@@ -63,6 +63,12 @@ export default function LoginScreen() {
             return;
         }
 
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            Alert.alert('خطأ', 'يرجى إدخال بريد إلكتروني صحيح');
+            return;
+        }
+
         setLoading(true);
         try {
             await login(email, password);
@@ -96,6 +102,8 @@ export default function LoginScreen() {
                                 style={[styles.googleButton, loading && styles.buttonDisabled]}
                                 onPress={handleGoogleLogin}
                                 disabled={loading || !request}
+                                accessibilityLabel="تسجيل الدخول بحساب Google"
+                                accessibilityRole="button"
                             >
                                 {loading ? (
                                     <ActivityIndicator color="#333" />
@@ -123,6 +131,7 @@ export default function LoginScreen() {
                         onChangeText={setEmail}
                         keyboardType="email-address"
                         autoCapitalize="none"
+                        accessibilityLabel="البريد الإلكتروني"
                     />
 
                     <ThemedText style={styles.label}>كلمة المرور</ThemedText>
@@ -133,12 +142,15 @@ export default function LoginScreen() {
                         value={password}
                         onChangeText={setPassword}
                         secureTextEntry
+                        accessibilityLabel="كلمة المرور"
                     />
 
                     <TouchableOpacity
                         style={[styles.button, loading && styles.buttonDisabled]}
                         onPress={handleLogin}
                         disabled={loading}
+                        accessibilityLabel="تسجيل الدخول"
+                        accessibilityRole="button"
                     >
                         {loading ? (
                             <ActivityIndicator color="#fff" />
@@ -147,14 +159,14 @@ export default function LoginScreen() {
                         )}
                     </TouchableOpacity>
 
-                    <TouchableOpacity style={styles.linkButton}>
+                    <TouchableOpacity style={styles.linkButton} onPress={() => Alert.alert('نسيت كلمة المرور', 'يرجى التواصل مع الدعم الفني لإعادة تعيين كلمة المرور')} accessibilityLabel="نسيت كلمة المرور؟" accessibilityRole="button">
                         <ThemedText style={styles.linkText}>نسيت كلمة المرور؟</ThemedText>
                     </TouchableOpacity>
                 </ThemedView>
 
                 <ThemedView style={styles.footer}>
                     <ThemedText>ليس لديك حساب؟ </ThemedText>
-                    <TouchableOpacity onPress={() => router.push('/auth/register')}>
+                    <TouchableOpacity onPress={() => router.push('/auth/register')} accessibilityLabel="إنشاء حساب جديد" accessibilityRole="button">
                         <ThemedText style={styles.footerLink}>إنشاء حساب جديد</ThemedText>
                     </TouchableOpacity>
                 </ThemedView>

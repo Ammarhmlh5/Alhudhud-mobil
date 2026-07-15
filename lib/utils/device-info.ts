@@ -2,6 +2,7 @@ import * as Device from 'expo-device';
 import * as Network from 'expo-network';
 import * as Application from 'expo-application';
 import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 
 const DEVICE_ID_KEY = 'device_id';
@@ -16,7 +17,17 @@ export interface DeviceInfo {
   appVersion: string;
 }
 
+let deviceIdPromise: Promise<string> | null = null;
+
 async function getDeviceId(): Promise<string> {
+  if (deviceIdPromise) return deviceIdPromise;
+  deviceIdPromise = getDeviceIdInternal();
+  const result = await deviceIdPromise;
+  deviceIdPromise = null;
+  return result;
+}
+
+async function getDeviceIdInternal(): Promise<string> {
   let deviceId = await SecureStore.getItemAsync(DEVICE_ID_KEY);
   if (deviceId) return deviceId;
 
@@ -27,7 +38,7 @@ async function getDeviceId(): Promise<string> {
   }
 
   if (!deviceId) {
-    deviceId = `device_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    deviceId = `device_${Crypto.randomUUID()}`;
   }
 
   await SecureStore.setItemAsync(DEVICE_ID_KEY, deviceId);
@@ -48,7 +59,9 @@ export async function collectDeviceInfo(): Promise<DeviceInfo> {
       if (constants?.Serial && constants.Serial !== 'unknown') {
         serialNumber = constants.Serial;
       }
-    } catch {}
+    } catch (error) {
+      console.error('Failed to get device serial:', error);
+    }
   }
 
   return {

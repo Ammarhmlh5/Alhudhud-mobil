@@ -11,7 +11,7 @@ import { CONNECTOR_PRESETS, getPresetById } from '@/lib/connectors/presets';
 export default function SendDataScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [connector, setConnector] = useState<ConnectorConfig | null>(null);
-  const [payload, setPayload] = useState('{\n  \n}');
+  const [payload, setPayload] = useState('{}');
   const [response, setResponse] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [showTemplates, setShowTemplates] = useState(true);

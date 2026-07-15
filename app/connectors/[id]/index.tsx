@@ -13,14 +13,23 @@ export default function ConnectorDetailScreen() {
   const [connector, setConnector] = useState<ConnectorConfig | null>(null);
   const [logs, setLogs] = useState<any[]>([]);
   const [testing, setTesting] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     if (!id) return;
-    const result = await connectorManager.getById(id);
-    setConnector(result);
-    const messageLogs = await connectorManager.getMessageLogs(id, 20);
-    setLogs(messageLogs);
-  }, [id]);
+    try {
+      const result = await connectorManager.getById(id);
+      setConnector(result);
+      const messageLogs = await connectorManager.getMessageLogs(id, 20);
+      setLogs(messageLogs);
+    } catch (error) {
+      console.error('Failed to load connector:', error);
+      Alert.alert('خطأ', 'فشل تحميل بيانات الاتصال');
+      router.back();
+    } finally {
+      setLoading(false);
+    }
+  }, [id, router]);
 
   useEffect(() => {
     load();
@@ -29,19 +38,30 @@ export default function ConnectorDetailScreen() {
   const handleTest = async () => {
     if (!id) return;
     setTesting(true);
-    const result = await connectorManager.testConnection(id);
-    Alert.alert(
-      result.success ? '✅ اتصال ناجح' : '❌ فشل الاتصال',
-      result.success ? `زمن الاستجابة: ${result.latency}ms` : result.error || 'خطأ غير معروف'
-    );
-    setTesting(false);
-    load();
+    try {
+      const result = await connectorManager.testConnection(id);
+      Alert.alert(
+        result.success ? '✅ اتصال ناجح' : '❌ فشل الاتصال',
+        result.success ? `زمن الاستجابة: ${result.latency}ms` : result.error || 'خطأ غير معروف'
+      );
+      load();
+    } catch (error) {
+      console.error('Failed to test connection:', error);
+      Alert.alert('خطأ', 'فشل اختبار الاتصال');
+    } finally {
+      setTesting(false);
+    }
   };
 
   const handleToggle = async () => {
     if (!id) return;
-    await connectorManager.toggleActive(id);
-    load();
+    try {
+      await connectorManager.toggleActive(id);
+      load();
+    } catch (error) {
+      console.error('Failed to toggle connector:', error);
+      Alert.alert('خطأ', 'فشل تبديل حالة الاتصال');
+    }
   };
 
   const handleDelete = () => {
@@ -51,17 +71,30 @@ export default function ConnectorDetailScreen() {
       {
         text: 'حذف', style: 'destructive',
         onPress: async () => {
-          await connectorManager.delete(id);
-          router.back();
+          try {
+            await connectorManager.delete(id);
+            router.back();
+          } catch (error) {
+            console.error('Failed to delete connector:', error);
+            Alert.alert('خطأ', 'فشل حذف الاتصال');
+          }
         },
       },
     ]);
   };
 
-  if (!connector) {
+  if (loading) {
     return (
       <ThemedView style={styles.container}>
         <ThemedText>جارٍ التحميل...</ThemedText>
+      </ThemedView>
+    );
+  }
+
+  if (!connector) {
+    return (
+      <ThemedView style={styles.container}>
+        <ThemedText>تعذر تحميل البيانات</ThemedText>
       </ThemedView>
     );
   }
@@ -119,19 +152,19 @@ export default function ConnectorDetailScreen() {
       </ThemedView>
 
       <View style={styles.actions}>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#E6A23C' }]} onPress={() => router.push(`/connectors/add?id=${id}`)}>
+        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#E6A23C' }]} onPress={() => router.push(`/connectors/add?id=${id}`)} accessibilityLabel="تعديل" accessibilityRole="button">
           <ThemedText style={styles.actionText}>تعديل</ThemedText>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#2196F3' }]} onPress={handleTest} disabled={testing}>
+        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#2196F3' }]} onPress={handleTest} disabled={testing} accessibilityLabel="اختبار الاتصال" accessibilityRole="button">
           <ThemedText style={styles.actionText}>{testing ? 'جارٍ...' : 'اختبار الاتصال'}</ThemedText>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#FF9800' }]} onPress={handleToggle}>
+        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#FF9800' }]} onPress={handleToggle} accessibilityLabel={connector.isActive ? 'إيقاف' : 'تشغيل'} accessibilityRole="button">
           <ThemedText style={styles.actionText}>{connector.isActive ? 'إيقاف' : 'تشغيل'}</ThemedText>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#4CAF50' }]} onPress={() => router.push(`/connectors/send?id=${id}`)}>
+        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#4CAF50' }]} onPress={() => router.push(`/connectors/send?id=${id}`)} accessibilityLabel="إرسال بيانات" accessibilityRole="button">
           <ThemedText style={styles.actionText}>إرسال بيانات</ThemedText>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#9C27B0' }]} onPress={() => router.push(`/connectors/mapping?id=${id}`)}>
+        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#9C27B0' }]} onPress={() => router.push(`/connectors/mapping?id=${id}`)} accessibilityLabel="تعيين بيانات" accessibilityRole="button">
           <ThemedText style={styles.actionText}>تعيين بيانات</ThemedText>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#607D8B' }]} onPress={async () => {
@@ -139,7 +172,7 @@ export default function ConnectorDetailScreen() {
           if (json) {
             await Share.share({ message: json, title: `تصدير ${connector.name}` });
           }
-        }}>
+        }} accessibilityLabel="تصدير الإعدادات" accessibilityRole="button">
           <ThemedText style={styles.actionText}>تصدير</ThemedText>
         </TouchableOpacity>
       </View>

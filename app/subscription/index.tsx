@@ -36,7 +36,7 @@ const PLANS: Plan[] = [
     name: 'أعمال',
     price: '99',
     interval: 'شهرياً',
-    features: ['اتصالات غير محدودة', '100,000 رسالة/شهر', 'سجل غير محدود', 'دعم فني优先', 'API مفتوح'],
+    features: ['اتصالات غير محدودة', '100,000 رسالة/شهر', 'سجل غير محدود', 'دعم فني ذو أولوية', 'API مفتوح'],
   },
 ];
 
@@ -61,14 +61,18 @@ export default function SubscriptionScreen() {
         }
         return;
       }
-    } catch {}
+    } catch (error) {
+      console.error('Failed to load subscription from server:', error);
+    }
 
     const db = getDB();
     if (!db) return;
     try {
       const row = db.getFirstSync("SELECT value FROM subscription_info WHERE key = 'current_plan'") as any;
       setCurrentPlan(row?.value || 'free');
-    } catch {}
+    } catch (error) {
+      console.error('Failed to load subscription from local DB:', error);
+    }
   };
 
   const handleSelectPlan = async (planId: string) => {
@@ -83,7 +87,9 @@ export default function SubscriptionScreen() {
         Alert.alert('✅ تم', `تم التبديل إلى خطة "${PLANS.find(p => p.id === planId)?.name}"`);
         return;
       }
-    } catch {}
+    } catch (error) {
+      console.error('Failed to update subscription:', error);
+    }
 
     if (planId === 'free') {
       const db = getDB();
@@ -123,6 +129,9 @@ export default function SubscriptionScreen() {
               ]}
               onPress={() => handleSelectPlan(plan.id)}
               disabled={isCurrent}
+              accessibilityLabel={`خطة ${plan.name} ${plan.price === '0' ? 'مجانية' : plan.price + ' ريال'}`}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isCurrent }}
             >
               {plan.recommended && (
                 <ThemedView style={styles.recommendedBadge}>
@@ -151,6 +160,8 @@ export default function SubscriptionScreen() {
                 <TouchableOpacity
                   style={[styles.selectBtn, plan.recommended && styles.selectBtnRecommended]}
                   onPress={() => handleSelectPlan(plan.id)}
+                  accessibilityLabel={plan.price === '0' ? 'اختيار مجاني' : 'اشتراك'}
+                  accessibilityRole="button"
                 >
                   <ThemedText style={styles.selectBtnText}>
                     {plan.price === '0' ? 'اختيار مجاني' : 'اشتراك'}
